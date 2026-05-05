@@ -6,6 +6,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Download, Check, AlertCircle, Loader2, X, Trash2, Camera } from 'lucide-react';
 import * as Tesseract from 'tesseract.js';
 import * as XLSX from 'xlsx';
+import { parseInvoice } from '@/lib/parseInvoice';
 
 type PdfJs = typeof import('pdfjs-dist');
 
@@ -922,11 +923,14 @@ export default function Home() {
       setOcrRawText(bestText);
       setOcrConfidence(bestConfidence >= 0 ? Math.round(bestConfidence) : null);
 
-      const extractedData = extractInfoFromText(bestText);
+      const parsed = parseInvoice(bestText);
       setInvoiceData({
         client: getClientCode(client),
         id: getNextPieceId(getClientCode(client), processedInvoices),
-        ...extractedData
+        date: parsed.date ?? '',
+        fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : '',
+        montant: parsed.montant === null ? '' : parsed.montant.toFixed(2),
+        libelle: parsed.libelle ? parsed.libelle.toUpperCase() : '',
       });
     } catch (error) {
       console.error('OCR Error:', error);
