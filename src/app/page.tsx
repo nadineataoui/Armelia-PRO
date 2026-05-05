@@ -70,6 +70,9 @@ export default function Home() {
   const autoSaveRequestedRef = useRef(false);
   const pdfjsRef = useRef<PdfJs | null>(null);
   const pdfjsLoadRef = useRef<Promise<PdfJs> | null>(null);
+  const fileUrlToRevokeRef = useRef<string | null>(null);
+  const processSeqRef = useRef(0);
+  const activeProcessRef = useRef(0);
 
   const getClientCode = useCallback((raw: string) => {
     const trimmed = (raw || '').trim().toUpperCase();
@@ -94,6 +97,31 @@ export default function Home() {
       if (Number.isFinite(n) && n > max) max = n;
     });
     return `CLI${String(max + 1).padStart(3, '0')}`;
+  }, []);
+
+  const setPreviewUrl = useCallback((nextUrl: string | null) => {
+    const prev = fileUrlToRevokeRef.current;
+    if (prev && prev.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(prev);
+      } catch {
+      }
+    }
+    fileUrlToRevokeRef.current = nextUrl;
+    setFileUrl(nextUrl);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const prev = fileUrlToRevokeRef.current;
+      if (prev && prev.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(prev);
+        } catch {
+        }
+      }
+      fileUrlToRevokeRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -550,7 +578,7 @@ export default function Home() {
     const clientCode = getClientCode(client);
     setManualMode(true);
     setFile(null);
-    setFileUrl(null);
+    setPreviewUrl(null);
     setInvoiceData({
       client: clientCode,
       id: getNextPieceId(clientCode, processedInvoices),
@@ -596,7 +624,7 @@ export default function Home() {
     if (selectedFile) {
       setManualMode(false);
       setFile(selectedFile);
-      setFileUrl(URL.createObjectURL(selectedFile));
+      setPreviewUrl(URL.createObjectURL(selectedFile));
       processFile(selectedFile);
     }
   };
@@ -733,19 +761,47 @@ export default function Home() {
   };
 
   const preprocessImageFileToCanvas = async (file: File) => {
-    const url = URL.createObjectURL(file);
+    type BitmapLike = { width: number; height: number };
+    type BitmapClosable = BitmapLike & { close?: () => void };
+
     try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error("Erreur lecture image"));
-        image.src = url;
-      });
+      const loadBitmap = async (): Promise<BitmapLike> => {
+        if (typeof createImageBitmap === 'function') {
+          try {
+            const bmp = await createImageBitmap(
+              file,
+              { imageOrientation: 'from-image' } as unknown as ImageBitmapOptions
+            );
+            return bmp;
+          } catch {
+          }
+          try {
+            const bmp = await createImageBitmap(file);
+            return bmp;
+          } catch {
+          }
+        }
+
+        const url = URL.createObjectURL(file);
+        try {
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error("Erreur lecture image"));
+            image.src = url;
+          });
+          return img;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+
+      const source = await loadBitmap();
 
       const maxWidth = 2000;
-      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
-      const width = Math.max(1, Math.round(img.width * scale));
-      const height = Math.max(1, Math.round(img.height * scale));
+      const scale = source.width > maxWidth ? maxWidth / source.width : 1;
+      const width = Math.max(1, Math.round(source.width * scale));
+      const height = Math.max(1, Math.round(source.height * scale));
 
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -756,14 +812,16 @@ export default function Home() {
       ctx.imageSmoothingQuality = 'high';
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(source as unknown as CanvasImageSource, 0, 0, width, height);
+      (source as BitmapClosable).close?.();
       return canvas;
     } finally {
-      URL.revokeObjectURL(url);
     }
   };
 
   const processFile = async (file: File) => {
+    const processId = ++processSeqRef.current;
+    activeProcessRef.current = processId;
     setIsProcessing(true);
     setProgress(0);
     setOcrRawText('');
@@ -773,8 +831,10 @@ export default function Home() {
 
       if (file.type === 'application/pdf') {
         const pdfjs = await ensurePdfJsLoaded();
+        if (activeProcessRef.current !== processId) return;
 
         const arrayBuffer = await file.arrayBuffer();
+        if (activeProcessRef.current !== processId) return;
         type PdfViewport = { height: number; width: number };
         type PdfPage = {
           getViewport: (options: { scale: number }) => PdfViewport;
@@ -786,7 +846,9 @@ export default function Home() {
         const pdf = await (pdfjs as unknown as { getDocument: (source: { data: ArrayBuffer }) => PdfGetDocumentResult })
           .getDocument({ data: arrayBuffer })
           .promise;
+        if (activeProcessRef.current !== processId) return;
         const page = await pdf.getPage(1);
+        if (activeProcessRef.current !== processId) return;
         const baseViewport = page.getViewport({ scale: 1.0 });
         const targetWidth = 1700;
         const scale = Math.min(3, targetWidth / baseViewport.width);
@@ -801,9 +863,11 @@ export default function Home() {
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: context, viewport }).promise;
+        if (activeProcessRef.current !== processId) return;
         sourceCanvas = canvas;
       } else {
         sourceCanvas = await preprocessImageFileToCanvas(file);
+        if (activeProcessRef.current !== processId) return;
       }
 
       const worker = await Tesseract.createWorker('fra+eng', 1, {
@@ -813,6 +877,10 @@ export default function Home() {
           }
         },
       });
+      if (activeProcessRef.current !== processId) {
+        await worker.terminate();
+        return;
+      }
 
       let bestText = '';
       let bestConfidence = -1;
@@ -822,6 +890,7 @@ export default function Home() {
 
       const recognizeCandidate = async (canvas: HTMLCanvasElement, angle: 0 | 90 | 180 | 270) => {
         const result = await worker.recognize(rotateCanvasToDataUrl(canvas, angle));
+        if (activeProcessRef.current !== processId) return -1;
         const conf = typeof result?.data?.confidence === 'number' ? result.data.confidence : -1;
         const text = result?.data?.text || '';
         if (conf > bestConfidence) {
@@ -848,6 +917,7 @@ export default function Home() {
       }
 
       await worker.terminate();
+      if (activeProcessRef.current !== processId) return;
 
       setOcrRawText(bestText);
       setOcrConfidence(bestConfidence >= 0 ? Math.round(bestConfidence) : null);
@@ -862,7 +932,9 @@ export default function Home() {
       console.error('OCR Error:', error);
       alert("Erreur lors de l'analyse de la facture. Veuillez remplir les champs manuellement.");
     } finally {
-      setIsProcessing(false);
+      if (activeProcessRef.current === processId) {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -880,7 +952,7 @@ export default function Home() {
         setManualMode(false);
         setFile(capturedFile);
         const url = URL.createObjectURL(capturedFile);
-        setFileUrl(url);
+        setPreviewUrl(url);
         await processFile(capturedFile);
         return;
       } catch {
@@ -905,96 +977,203 @@ export default function Home() {
     setManualMode(false);
     setFile(capturedFile);
     const url = URL.createObjectURL(capturedFile);
-    setFileUrl(url);
+    setPreviewUrl(url);
     await processFile(capturedFile);
   };
 
   const extractInfoFromText = (text: string) => {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const fullText = text.toLowerCase();
-    
-    // --- EXTRACTION DE LA DATE ---
-    // Priorité aux dates précédées de mots clés spécifiques à la facture
-    const dateKeywords = /(?:date|factur[ée]|le\s+|du\s+)/i;
-    const dateRegex = /(\d{2}[/.-]\d{2}[/.-]\d{4})|(\d{4}[/.-]\d{2}[/.-]\d{2})/;
-    const frenchDateRegex = /(\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4})/i;
-    
+    const normalizedText = (text || '').replace(/[\u00a0\u202f]/g, ' ');
+    const lines = normalizedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const fullText = normalizedText.toLowerCase();
+
+    const monthToNumber: Record<string, string> = {
+      janvier: '01',
+      fevrier: '02',
+      février: '02',
+      mars: '03',
+      avril: '04',
+      mai: '05',
+      juin: '06',
+      juillet: '07',
+      aout: '08',
+      août: '08',
+      septembre: '09',
+      octobre: '10',
+      novembre: '11',
+      decembre: '12',
+      décembre: '12',
+    };
+
+    const normalizeAmountToNumberString = (raw: string) => {
+      const s = (raw || '').replace(/[\s\u00a0\u202f]/g, '');
+      const lastComma = s.lastIndexOf(',');
+      const lastDot = s.lastIndexOf('.');
+      if (lastComma !== -1 && lastDot !== -1) {
+        if (lastComma > lastDot) {
+          return s.replace(/\./g, '').replace(',', '.');
+        }
+        return s.replace(/,/g, '');
+      }
+      if (lastComma !== -1) return s.replace(',', '.');
+      return s;
+    };
+
+    const parseDateFromString = (raw: string) => {
+      const s = (raw || '').trim();
+      const m1 = s.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);
+      if (m1) {
+        const dd = Number.parseInt(m1[1], 10);
+        const mm = Number.parseInt(m1[2], 10);
+        let yyyy = Number.parseInt(m1[3], 10);
+        if (yyyy < 100) yyyy = 2000 + yyyy;
+        if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12 && yyyy >= 2000 && yyyy <= 2100) {
+          return `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${String(yyyy)}`;
+        }
+      }
+      const m2 = s.match(/\b(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
+      if (m2) {
+        const yyyy = Number.parseInt(m2[1], 10);
+        const mm = Number.parseInt(m2[2], 10);
+        const dd = Number.parseInt(m2[3], 10);
+        if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12 && yyyy >= 2000 && yyyy <= 2100) {
+          return `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${String(yyyy)}`;
+        }
+      }
+      const m3 = s.match(/\b(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})\b/i);
+      if (m3) {
+        const dd = Number.parseInt(m3[1], 10);
+        const monthRaw = m3[2].toLowerCase();
+        const mm = monthToNumber[monthRaw] || '';
+        const yyyy = Number.parseInt(m3[3], 10);
+        if (mm && dd >= 1 && dd <= 31 && yyyy >= 2000 && yyyy <= 2100) {
+          return `${String(dd).padStart(2, '0')}/${mm}/${String(yyyy)}`;
+        }
+      }
+      return '';
+    };
+
+    const isLikelyNonInvoiceDateLine = (l: string) => /commande|bon\s+de\s+commande|livraison|expedition|expédition|devis|order/i.test(l);
+
     let invoiceDate = '';
-    // Chercher une ligne qui contient un mot clé de date ET une date (numérique ou texte)
-    const dateLine = lines.find(l => dateKeywords.test(l) && (dateRegex.test(l) || frenchDateRegex.test(l)));
-    if (dateLine) {
-      const match = dateLine.match(dateRegex) || dateLine.match(frenchDateRegex);
-      if (match) invoiceDate = match[0];
-    }
-    
-    // Si pas trouvé, prendre la première date du document
-    if (!invoiceDate) {
-      const allDates = text.match(new RegExp(dateRegex, 'g')) || text.match(new RegExp(frenchDateRegex, 'g'));
-      if (allDates && allDates.length > 0) invoiceDate = allDates[0];
-    }
-
-    // --- EXTRACTION DU MONTANT ---
-    // Chercher spécifiquement le TOTAL TTC
-    const ttcKeywords = /(?:total\s*ttc|net\s*à\s*payer|montant\s*ttc|total\s*eur|total\s*€|payable)/i;
-    const amountRegex = /(\d+[\s.,]\d{2})/;
-    
-    let amount = '';
-    // Chercher une ligne avec TTC et un montant
-    const ttcLine = lines.find(l => ttcKeywords.test(l) && amountRegex.test(l));
-    if (ttcLine) {
-      const match = ttcLine.match(amountRegex);
-      if (match) amount = match[0];
-    }
-
-    if (!amount) {
-      // Chercher le montant le plus bas dans le texte qui suit le mot "TOTAL"
-      const totalIndex = fullText.lastIndexOf('total');
-      if (totalIndex !== -1) {
-        const textAfterTotal = text.substring(totalIndex);
-        const match = textAfterTotal.match(amountRegex);
-        if (match) amount = match[0];
+    {
+      const dateCandidateLines = lines
+        .slice(0, 80)
+        .filter(l => !isLikelyNonInvoiceDateLine(l))
+        .map((l, idx) => {
+          const lower = l.toLowerCase();
+          const parsed = parseDateFromString(l);
+          const score =
+            (/(date\s*facture|date\s*de\s*facture|facture\s*(du|le))/i.test(lower) ? 8 : 0) +
+            (/date/i.test(lower) ? 2 : 0) +
+            (/(ticket|reçu|recu|invoice)/i.test(lower) ? 1 : 0) -
+            (/commande|livraison|devis|order/i.test(lower) ? 5 : 0) +
+            (parsed ? 3 : 0) -
+            (idx > 30 ? 1 : 0);
+          return { l, parsed, score, idx };
+        })
+        .filter(c => c.parsed.length > 0)
+        .sort((a, b) => b.score - a.score || a.idx - b.idx);
+      if (dateCandidateLines.length > 0) invoiceDate = dateCandidateLines[0].parsed;
+      if (!invoiceDate) {
+        const anyDate = parseDateFromString(normalizedText);
+        if (anyDate) invoiceDate = anyDate;
       }
     }
 
-    if (!amount) {
-      // En dernier recours, prendre le dernier montant du document (souvent le total)
-      const allAmounts = text.match(new RegExp(amountRegex, 'g'));
-      if (allAmounts) amount = allAmounts[allAmounts.length - 1];
+    let amount = '';
+    {
+      const amountRegex = /\b(\d{1,3}(?:[ .\u00a0\u202f]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2}))\b/g;
+      const candidates: Array<{ raw: string; value: number; score: number; idx: number }> = [];
+      const pushCandidate = (raw: string, line: string, idx: number) => {
+        const normalized = normalizeAmountToNumberString(raw);
+        const value = Number.parseFloat(normalized);
+        if (!Number.isFinite(value) || value <= 0) return;
+        const lower = line.toLowerCase();
+        const score =
+          (/(total\s*ttc|net\s*a\s*payer|net\s*à\s*payer|montant\s*ttc|a\s*payer|payable)/i.test(lower) ? 10 : 0) +
+          (/\bttc\b/i.test(lower) ? 3 : 0) +
+          (/\btotal\b/i.test(lower) ? 2 : 0) +
+          (/[€$]/.test(line) ? 1 : 0) -
+          (/(tva|ht|remise|rabais)/i.test(lower) ? 1 : 0) +
+          (idx > 80 ? -1 : 0);
+        candidates.push({ raw: normalized, value, score, idx });
+      };
+
+      lines.slice(0, 120).forEach((l, idx) => {
+        const matches = Array.from(l.matchAll(amountRegex));
+        matches.forEach(m => pushCandidate(m[1], l, idx));
+      });
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => {
+          const sa = a.score;
+          const sb = b.score;
+          if (sb !== sa) return sb - sa;
+          if (b.value !== a.value) return b.value - a.value;
+          return a.idx - b.idx;
+        });
+        amount = String(candidates[0].raw);
+      } else {
+        const all = Array.from(normalizedText.matchAll(amountRegex)).map(m => normalizeAmountToNumberString(m[1]));
+        if (all.length > 0) amount = all[all.length - 1];
+      }
     }
 
-    // --- EXTRACTION DU FOURNISSEUR ---
-    // On ignore les lignes de contact, mentions légales, horaires, etc.
-    const noiseKeywords = /(?:question|contact|téléphone|tel|email|mail|site|web|www|http|adresse|siège|social|siret|tva|iban|bic|page|client|destinataire|facturer\s*à|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|horaires|ouverture|fermeture|via|service|consommateurs|bienvenue)/i;
-    
     let fournisseur = '';
-    // Le fournisseur est souvent dans les premières lignes, et n'est pas une date ni du "bruit"
-    const potentialVendors = lines.slice(0, 15).filter(l => 
-      l.length > 2 && 
-      !dateRegex.test(l) && 
-      !frenchDateRegex.test(l) &&
-      !l.match(/\d{5}/) && // code postal
-      !l.match(/\d{1,2}h\d{2}/) && // horaires type 8h30
-      !noiseKeywords.test(l) &&
-      !l.match(/facture|invoice|ticket|reçu/i)
-    );
+    {
+      const noiseKeywords = /(?:question|contact|téléphone|tel|email|mail|site|web|www|http|adresse|siège|social|siret|tva|iban|bic|page|client|destinataire|facturer\s*à|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|horaires|ouverture|fermeture|via|service|consommateurs|bienvenue|merci|cb|carte|visa|mastercard)/i;
+      const headerLines = lines.slice(0, 25);
+      const fromLabel = headerLines
+        .map(l => l.match(/^(fournisseur|vendeur|magasin)\s*[:\-]\s*(.+)$/i))
+        .find(Boolean);
+      if (fromLabel && fromLabel[2]) {
+        fournisseur = fromLabel[2];
+      } else {
+        const scored = headerLines
+          .map((l, idx) => {
+            const line = l.trim();
+            const upper = line.toUpperCase();
+            const letters = (line.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+            const digits = (line.match(/[0-9]/g) || []).length;
+            const words = line.split(/\s+/).filter(Boolean).length;
+            const mostlyUpper = letters > 0 && (upper.match(/[A-ZÀ-ÿ]/g) || []).length / letters > 0.7;
+            const hasPostal = /\b\d{5}\b/.test(line);
+            const looksLikeAddress = hasPostal || /\b(rue|avenue|av\\.?|bd|boulevard|chemin|zone|zac|bp)\b/i.test(line);
+            const hasLegal = /\b(sas|sarl|sa|eurl|sasu|snc|gmbh|inc|ltd)\b/i.test(line);
+            const hasBad = noiseKeywords.test(line) || /facture|invoice|ticket|reçu|recu/i.test(line);
+            if (line.length < 2 || line.length > 60) return { line, score: -999, idx };
+            if (looksLikeAddress) return { line, score: -50, idx };
+            if (hasBad) return { line, score: -20, idx };
+            let score = 0;
+            score += mostlyUpper ? 6 : 0;
+            score += hasLegal ? 2 : 0;
+            score += words >= 1 && words <= 4 ? 3 : 0;
+            score += letters >= 3 ? 2 : 0;
+            score -= digits > 0 ? 3 : 0;
+            score -= idx > 8 ? 1 : 0;
+            return { line, score, idx };
+          })
+          .sort((a, b) => b.score - a.score || a.idx - b.idx);
+        fournisseur = scored.length > 0 ? scored[0].line : (lines[0] || '');
+      }
 
-    // Si on trouve "LIDL" (cas spécifique fréquent), on le priorise
-    const specificVendor = lines.find(l => l.toUpperCase().includes('LIDL'));
-    if (specificVendor) {
-      fournisseur = 'LIDL';
-    } else {
-      fournisseur = potentialVendors.length > 0 ? potentialVendors[0] : lines[0] || '';
+      const specificVendor = lines.find(l => l.toUpperCase().includes('LIDL'));
+      if (specificVendor) fournisseur = 'LIDL';
     }
 
-    const cleanDate = invoiceDate.replace(/\./g, '/');
-    const cleanFournisseur = fournisseur.substring(0, 50).trim().toUpperCase();
+    const cleanDate = invoiceDate;
+    const cleanFournisseur = (fournisseur || '').substring(0, 50).trim().toUpperCase();
+    const cleanMontant = normalizeAmountToNumberString(amount);
+    const libelleParts = ['FACTURE'];
+    if (cleanFournisseur) libelleParts.push(cleanFournisseur);
+    if (cleanDate) libelleParts.push('DU', cleanDate);
+    const libelle = libelleParts.join(' ').replace(/\s+/g, ' ').trim();
 
     return {
       date: cleanDate,
       fournisseur: cleanFournisseur,
-      montant: amount.replace(/\s/g, '').replace(',', '.'),
-      // Format standard : FACTURE [FOURNISSEUR] DU [DATE]
-      libelle: `FACTURE ${cleanFournisseur} DU ${cleanDate}`
+      montant: cleanMontant,
+      libelle,
     };
   };
 
@@ -1040,7 +1219,7 @@ export default function Home() {
     });
     // Reset
     setFile(null);
-    setFileUrl(null);
+    setPreviewUrl(null);
   };
 
   const removeInvoice = (index: number) => {
@@ -1053,7 +1232,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col font-sans text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 flex flex-col font-sans text-zinc-900 pb-[env(safe-area-inset-bottom)]">
       {/* Header */}
       <header className="bg-white border-b border-zinc-200 px-4 md:px-8 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
@@ -1063,15 +1242,15 @@ export default function Home() {
           <h1 className="text-xl font-bold tracking-tight text-zinc-800">Armelia <span className="text-orange-500 font-black">PRO</span></h1>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end">
           <div className="text-right mr-4 hidden md:block">
             <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Factures en attente</p>
             <p className="text-lg font-mono font-bold">{processedInvoices.length}</p>
           </div>
-          <div className="hidden md:flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={pickExcelFile}
-              className="border border-zinc-200 bg-white px-4 py-2.5 rounded-full font-bold text-sm hover:border-orange-300 hover:bg-orange-50 transition-all"
+              className="border border-zinc-200 bg-white px-3 md:px-4 py-2 rounded-full font-bold text-xs md:text-sm hover:border-orange-300 hover:bg-orange-50 transition-all"
               title="Choisir le fichier Excel pour l'enregistrement automatique"
             >
               Lier Excel
@@ -1086,7 +1265,7 @@ export default function Home() {
                     }
                   })();
                 }}
-                className="border border-zinc-200 bg-white px-4 py-2.5 rounded-full font-bold text-sm hover:border-orange-300 hover:bg-orange-50 transition-all"
+                className="border border-zinc-200 bg-white px-3 md:px-4 py-2 rounded-full font-bold text-xs md:text-sm hover:border-orange-300 hover:bg-orange-50 transition-all"
                 title="Récupérer les noms de feuilles depuis l'Excel et les ajouter aux filtres"
               >
                 Sync Excel
@@ -1096,9 +1275,9 @@ export default function Home() {
           <button 
             onClick={exportToExcel}
             disabled={processedInvoices.length === 0}
-            className="flex items-center gap-2 bg-zinc-900 text-white px-6 py-2.5 rounded-full font-semibold hover:bg-orange-600 disabled:bg-zinc-200 disabled:text-zinc-400 transition-all active:scale-95 shadow-lg shadow-zinc-200"
+            className="flex items-center gap-2 bg-zinc-900 text-white px-4 md:px-6 py-2.5 rounded-full font-semibold hover:bg-orange-600 disabled:bg-zinc-200 disabled:text-zinc-400 transition-all active:scale-95 shadow-lg shadow-zinc-200"
           >
-            <Download size={18} /> Export Excel
+            <Download size={18} /> <span className="sm:hidden">Excel</span><span className="hidden sm:inline">Export Excel</span>
           </button>
         </div>
       </header>
@@ -1164,7 +1343,7 @@ export default function Home() {
                     setManualMode(false);
                     setFile(picked);
                     const url = URL.createObjectURL(picked);
-                    setFileUrl(url);
+                    setPreviewUrl(url);
                     await processFile(picked);
                   }}
                 />
@@ -1258,7 +1437,7 @@ export default function Home() {
                     </a>
                   )}
                   <button
-                    onClick={() => { setFile(null); setFileUrl(null); }}
+                    onClick={() => { setFile(null); setPreviewUrl(null); }}
                     className="p-1.5 hover:bg-zinc-200 rounded-lg text-zinc-500 transition-colors"
                     title="Fermer"
                   >
