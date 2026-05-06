@@ -200,6 +200,11 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [saving, setSaving] = useState(false);
 
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const pdfjsRef = useRef<PdfJs | null>(null);
   const pdfjsLoadRef = useRef<Promise<PdfJs> | null>(null);
   const fileUrlToRevokeRef = useRef<string | null>(null);
@@ -261,12 +266,49 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     })();
   }, []);
 
+  const openCamera = useCallback(async () => {
+    setCameraError(null);
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {
+      setCameraError("Impossible d'accéder à la caméra. Vérifiez les permissions.");
+    }
+  }, []);
+
+  const closeCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setShowCamera(false);
+    setCameraError(null);
+  }, []);
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const captured = new File([blob], `scan-${Date.now()}.jpg`, { type: "image/jpeg" });
+      closeCamera();
+      await handlePickedInvoiceFile(captured);
+    }, "image/jpeg", 0.95);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeCamera]);
+
   const isAcceptedInvoiceFile = (picked: File) => {
     const name = (picked?.name || "").toLowerCase();
     const isPdf = picked?.type === "application/pdf" || name.endsWith(".pdf");
-    const isJpg = picked?.type === "image/jpeg" || name.endsWith(".jpg") || name.endsWith(".jpeg");
-    const isPng = picked?.type === "image/png" || name.endsWith(".png");
-    return isPdf || isJpg || isPng;
+    const isImage = picked?.type?.startsWith("image/") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") || name.endsWith(".webp") || name.endsWith(".bmp") || name.endsWith(".tiff") || name.endsWith(".tif") || name.endsWith(".heic");
+    return isPdf || isImage;
   };
 
   const handlePickedInvoiceFile = async (picked: File) => {
@@ -443,24 +485,34 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         <div className="space-y-6">
           {!fileUrl ? (
             <div
-              onClick={() => mainFileInputRef.current?.click()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  mainFileInputRef.current?.click();
-                }
-              }}
               onDragEnter={onDropzoneDragEnter}
               onDragOver={onDropzoneDragOver}
               onDragLeave={onDropzoneDragLeave}
               onDrop={onDropzoneDrop}
-              role="button"
-              tabIndex={0}
-              className={`w-full border-2 border-dashed rounded-3xl flex flex-col items-center justify-center transition-all cursor-pointer p-10 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/50" : "border-zinc-300 hover:border-orange-400"}`}
+              className={`w-full border-2 border-dashed rounded-3xl flex flex-col items-center justify-center transition-all p-10 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/50" : "border-zinc-300"}`}
             >
-              <input ref={mainFileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => void onMainFileInputChange(e)} />
+              <input ref={mainFileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => void onMainFileInputChange(e)} />
               <h2 className="text-2xl font-black mb-2">Importer une facture</h2>
-              <p className="text-zinc-500 text-center">Glissez un PDF/JPG/PNG ici ou cliquez pour sélectionner.</p>
+              <p className="text-zinc-500 text-center mb-6">Glissez un fichier ici ou choisissez une option.</p>
+              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+                <button
+                  type="button"
+                  onClick={() => mainFileInputRef.current?.click()}
+                  className="flex-1 flex items-center justify-center gap-2 bg-orange-600 text-white py-3 px-4 rounded-2xl font-black hover:bg-orange-700 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Fichier
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openCamera()}
+                  className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 text-white py-3 px-4 rounded-2xl font-black hover:bg-zinc-900 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Caméra
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400 mt-4">PDF, JPG, PNG, WebP et plus</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
@@ -625,6 +677,47 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
           </button>
         </div>
       </main>
+
+      {showCamera && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-black rounded-3xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 bg-zinc-900">
+              <span className="text-white font-black text-sm">Scanner par caméra</span>
+              <button type="button" onClick={closeCamera} className="text-zinc-400 hover:text-white transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            {cameraError ? (
+              <div className="flex flex-col items-center justify-center p-10 text-center gap-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <p className="text-white text-sm font-bold">{cameraError}</p>
+                <button type="button" onClick={closeCamera} className="bg-zinc-700 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-zinc-600">Fermer</button>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full object-cover"
+                  style={{ maxHeight: "60vh" }}
+                />
+                <div className="flex items-center justify-center p-5 bg-zinc-900">
+                  <button
+                    type="button"
+                    onClick={capturePhoto}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-orange-100 transition-colors flex items-center justify-center shadow-xl"
+                    aria-label="Prendre une photo"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-orange-600" />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
