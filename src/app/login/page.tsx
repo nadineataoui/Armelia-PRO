@@ -60,7 +60,7 @@ export default async function LoginPage({
         </div>
 
         <div className="relative mt-12 pt-8 border-t border-slate-800">
-          <p className="text-slate-600 text-xs">© 2025 Armelia PRO — Tous droits réservés</p>
+          <p className="text-slate-600 text-xs">© 2026 Armelia PRO — Tous droits réservés</p>
         </div>
       </div>
 
