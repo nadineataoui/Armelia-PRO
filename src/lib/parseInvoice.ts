@@ -191,7 +191,6 @@ export const extractSupplier = (lines: string[]): string | null => {
 };
 
 export const parseInvoice = (text: string): ParsedInvoice => {
-  // Fonction principale testable indépendamment.
   try {
     const normalized = normalizeText(text);
     const lines = splitLines(normalized);

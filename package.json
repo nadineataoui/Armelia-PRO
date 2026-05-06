@@ -6,17 +6,20 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
-    "clsx": "^2.1.1",
-    "lucide-react": "^1.9.0",
+    "@prisma/client": "^6.0.0",
+    "bcryptjs": "^3.0.2",
     "next": "16.2.4",
+    "next-auth": "^4.24.7",
     "pdfjs-dist": "^5.4.624",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "react-dropzone": "^15.0.0",
-    "tailwind-merge": "^3.5.0",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
@@ -27,7 +30,12 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
+    "prisma": "^6.0.0",
     "tailwindcss": "^4",
+    "tsx": "^4.19.0",
     "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
