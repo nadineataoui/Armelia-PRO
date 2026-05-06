@@ -472,52 +472,70 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
   }, [fileUrl, invoice, isProcessing]);
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col">
-      <header className="bg-white border-b border-zinc-200 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-black">Espace client</h1>
-          <p className="text-xs text-zinc-500 font-bold">{clientCode}</p>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <header className="bg-slate-900 px-6 h-16 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/40">
+            <span className="text-white font-black text-sm">A</span>
+          </div>
+          <div>
+            <p className="text-white font-black text-sm leading-none">Espace client</p>
+            <p className="text-slate-500 text-[11px] mt-0.5">{clientCode}</p>
+          </div>
         </div>
         <LogoutButton />
       </header>
 
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 p-6">
-        <div className="space-y-6">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5 p-5">
+        <div className="space-y-5">
           {!fileUrl ? (
             <div
               onDragEnter={onDropzoneDragEnter}
               onDragOver={onDropzoneDragOver}
               onDragLeave={onDropzoneDragLeave}
               onDrop={onDropzoneDrop}
-              className={`w-full border-2 border-dashed rounded-3xl flex flex-col items-center justify-center transition-all p-10 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/50" : "border-zinc-300"}`}
+              className={`w-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all p-12 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/30" : "border-slate-200 hover:border-slate-300"}`}
             >
               <input ref={mainFileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => void onMainFileInputChange(e)} />
-              <h2 className="text-2xl font-black mb-2">Importer une facture</h2>
-              <p className="text-zinc-500 text-center mb-6">Glissez un fichier ici ou choisissez une option.</p>
-              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+              </div>
+              <h2 className="text-lg font-black text-slate-900 mb-1">Importer une facture</h2>
+              <p className="text-slate-400 text-sm text-center mb-7">Glissez un fichier ici ou choisissez une option ci-dessous</p>
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
                   onClick={() => mainFileInputRef.current?.click()}
-                  className="flex-1 flex items-center justify-center gap-2 bg-orange-600 text-white py-3 px-4 rounded-2xl font-black hover:bg-orange-700 transition-colors"
+                  className="flex items-center justify-center gap-2 bg-orange-600 text-white py-2.5 px-5 rounded-xl font-bold text-sm hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/20"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  Fichier
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Choisir un fichier
                 </button>
                 <button
                   type="button"
                   onClick={() => void openCamera()}
-                  className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 text-white py-3 px-4 rounded-2xl font-black hover:bg-zinc-900 transition-colors"
+                  className="flex items-center justify-center gap-2 bg-slate-800 text-white py-2.5 px-5 rounded-xl font-bold text-sm hover:bg-slate-900 transition-colors"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                  Caméra
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Scanner par caméra
                 </button>
               </div>
-              <p className="text-xs text-zinc-400 mt-4">PDF, JPG, PNG, WebP et plus</p>
+              <p className="text-xs text-slate-300 mt-5">PDF, JPG, PNG, WebP et autres formats images</p>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between gap-3 bg-zinc-50">
-                <div className="text-sm font-bold truncate">{file?.name}</div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-700 truncate">{file?.name}</span>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -528,36 +546,41 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
                     setOcrConfidence(null);
                     setShowOcrRawText(false);
                   }}
-                  className="border border-zinc-200 bg-white px-3 py-1.5 rounded-full font-bold text-xs hover:border-orange-300 hover:bg-orange-50 transition-all"
+                  className="flex-shrink-0 bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors"
                 >
                   Fermer
                 </button>
               </div>
-              <div className="bg-zinc-800 p-4 h-[520px] flex items-center justify-center">
+              <div className="bg-slate-800 p-3 h-[500px] flex items-center justify-center">
                 {file?.type === "application/pdf" ? (
-                  <iframe title="Facture PDF" src={fileUrl} className="w-full h-full rounded shadow-lg" />
+                  <iframe title="Facture PDF" src={fileUrl} className="w-full h-full rounded-lg shadow-xl" />
                 ) : (
                   <div className="relative w-full h-full">
-                    <Image src={fileUrl || ""} alt="Facture" fill unoptimized className="object-contain shadow-2xl" />
+                    <Image src={fileUrl || ""} alt="Facture" fill unoptimized className="object-contain" />
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          <div className="bg-white border border-zinc-200 rounded-2xl p-4">
-            <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-3">Factures enregistrées</h2>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-sm font-black text-slate-900">Factures enregistrées</h2>
+              <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{invoices.length}</span>
+            </div>
             {invoices.length === 0 ? (
-              <p className="text-sm text-zinc-500">Aucune facture.</p>
+              <div className="text-center py-10">
+                <p className="text-slate-400 text-sm">Aucune facture enregistrée</p>
+              </div>
             ) : (
-              <div className="space-y-2 max-h-[320px] overflow-auto pr-2">
+              <div className="max-h-[320px] overflow-auto">
                 {invoices.map((inv) => (
-                  <div key={inv.id} className="border border-zinc-100 rounded-xl p-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-black text-sm">{inv.numeroPiece} — {inv.fournisseur}</p>
-                      <p className="text-xs text-zinc-500">{inv.date} • {inv.libelle}</p>
+                  <div key={inv.id} className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm text-slate-900 truncate">{inv.numeroPiece} — {inv.fournisseur}</p>
+                      <p className="text-xs text-slate-400 mt-0.5 truncate">{inv.date} · {inv.libelle}</p>
                     </div>
-                    <div className="font-mono font-black text-sm">
+                    <div className="font-mono font-black text-sm text-slate-900 flex-shrink-0">
                       {inv.montant.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
                     </div>
                   </div>
@@ -567,114 +590,127 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
           </div>
         </div>
 
-        <div className="bg-white border border-zinc-200 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">Extraction</h2>
-            {isProcessing && <span className="text-xs font-black text-orange-700">{progress}%</span>}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-black text-slate-900">Données extraites</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Vérifiez et corrigez avant d&apos;enregistrer</p>
+            </div>
+            {isProcessing && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+                <span className="text-xs font-bold text-orange-600">{progress}%</span>
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Date</label>
-            <input
-              value={invoice.date}
-              onChange={(e) => setInvoice((p) => ({ ...p, date: e.target.value }))}
-              className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-2xl px-4 py-3 outline-none focus:bg-white focus:border-orange-500"
-              placeholder="JJ/MM/AAAA"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Fournisseur</label>
-            <input
-              value={invoice.fournisseur}
-              onChange={(e) => setInvoice((p) => ({ ...p, fournisseur: e.target.value }))}
-              className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-2xl px-4 py-3 outline-none focus:bg-white focus:border-orange-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Montant TTC (Crédit)</label>
-            <input
-              value={invoice.montant}
-              onChange={(e) => setInvoice((p) => ({ ...p, montant: e.target.value }))}
-              className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-2xl px-4 py-3 outline-none focus:bg-white focus:border-orange-500 font-mono font-bold"
-              placeholder="0.00"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Libellé</label>
-            <textarea
-              value={invoice.libelle}
-              onChange={(e) => setInvoice((p) => ({ ...p, libelle: e.target.value }))}
-              className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-2xl px-4 py-3 outline-none focus:bg-white focus:border-orange-500 min-h-[120px] resize-none"
-            />
+          <div className="p-5 space-y-4 flex-1">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
+              <input
+                value={invoice.date}
+                onChange={(e) => setInvoice((p) => ({ ...p, date: e.target.value }))}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 transition-all"
+                placeholder="JJ/MM/AAAA"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Fournisseur</label>
+              <input
+                value={invoice.fournisseur}
+                onChange={(e) => setInvoice((p) => ({ ...p, fournisseur: e.target.value }))}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Montant TTC (Crédit)</label>
+              <input
+                value={invoice.montant}
+                onChange={(e) => setInvoice((p) => ({ ...p, montant: e.target.value }))}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-mono font-bold outline-none focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 transition-all"
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Libellé</label>
+              <textarea
+                value={invoice.libelle}
+                onChange={(e) => setInvoice((p) => ({ ...p, libelle: e.target.value }))}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 transition-all min-h-[100px] resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowOcrRawText((v) => !v)}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-40"
+                disabled={!ocrRawText}
+              >
+                {showOcrRawText ? "Masquer texte OCR" : "Voir texte brut OCR"}
+              </button>
+              {ocrConfidence !== null && (
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${ocrConfidence >= 70 ? "bg-emerald-50 text-emerald-600" : ocrConfidence >= 50 ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-600"}`}>
+                  Confiance : {ocrConfidence}%
+                </span>
+              )}
+            </div>
+
+            {showOcrRawText && (
+              <pre className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs whitespace-pre-wrap max-h-[200px] overflow-auto text-slate-600">
+                {ocrRawText}
+              </pre>
+            )}
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div className="px-5 pb-5">
             <button
               type="button"
-              onClick={() => setShowOcrRawText((v) => !v)}
-              className="border border-zinc-200 bg-white px-4 py-2 rounded-full font-bold text-xs hover:border-orange-300 hover:bg-orange-50 transition-all"
-              disabled={!ocrRawText}
+              disabled={!canSave || saving}
+              onClick={async () => {
+                if (!file) return;
+                setSaving(true);
+                try {
+                  const res = await fetch("/api/invoices", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ ...invoice, fileName: file.name }),
+                  });
+                  const data = (await res.json().catch(() => null)) as unknown;
+                  if (!res.ok) {
+                    const err = (data && typeof data === "object" && "error" in data) ? String((data as { error?: unknown }).error || "") : "";
+                    alert(err || "Erreur lors de l'enregistrement.");
+                    return;
+                  }
+                  const invRaw = (data && typeof data === "object" && "invoice" in data) ? (data as { invoice?: unknown }).invoice : null;
+                  const inv = (invRaw && typeof invRaw === "object") ? (invRaw as Partial<InvoiceRow> & { date?: string }) : null;
+                  if (inv?.id && inv?.date && inv?.fournisseur && typeof inv.montant === "number" && inv?.libelle && inv?.numeroPiece && inv?.createdAt) {
+                    const row: InvoiceRow = {
+                      id: inv.id,
+                      date: formatDdMmYyyy(new Date(inv.date)),
+                      fournisseur: inv.fournisseur,
+                      montant: inv.montant,
+                      libelle: inv.libelle,
+                      numeroPiece: inv.numeroPiece,
+                      createdAt: inv.createdAt,
+                    };
+                    setInvoices((prev) => [row, ...prev]);
+                  }
+                  setFile(null);
+                  setPreviewUrl(null);
+                  setInvoice({ date: "", fournisseur: "", montant: "", libelle: "" });
+                  setOcrRawText("");
+                  setOcrConfidence(null);
+                  setShowOcrRawText(false);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="w-full bg-orange-600 text-white py-3.5 rounded-xl font-bold text-sm hover:bg-orange-700 disabled:bg-slate-200 disabled:text-slate-400 transition-colors shadow-sm shadow-orange-600/20"
             >
-              {showOcrRawText ? "Masquer texte OCR" : "Voir texte OCR"}
+              {saving ? "Enregistrement..." : "Valider et enregistrer"}
             </button>
-            <span className="text-xs text-zinc-500 font-bold">Confiance: {ocrConfidence === null ? "—" : `${ocrConfidence}%`}</span>
           </div>
-
-          {showOcrRawText && (
-            <pre className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 text-xs whitespace-pre-wrap max-h-[200px] overflow-auto">
-              {ocrRawText}
-            </pre>
-          )}
-
-          <button
-            type="button"
-            disabled={!canSave || saving}
-            onClick={async () => {
-              if (!file) return;
-              setSaving(true);
-              try {
-                const res = await fetch("/api/invoices", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ...invoice, fileName: file.name }),
-                });
-                const data = (await res.json().catch(() => null)) as unknown;
-                if (!res.ok) {
-                  const err = (data && typeof data === "object" && "error" in data) ? String((data as { error?: unknown }).error || "") : "";
-                  alert(err || "Erreur lors de l'enregistrement.");
-                  return;
-                }
-                const invRaw = (data && typeof data === "object" && "invoice" in data) ? (data as { invoice?: unknown }).invoice : null;
-                const inv = (invRaw && typeof invRaw === "object") ? (invRaw as Partial<InvoiceRow> & { date?: string }) : null;
-                if (inv?.id && inv?.date && inv?.fournisseur && typeof inv.montant === "number" && inv?.libelle && inv?.numeroPiece && inv?.createdAt) {
-                  const row: InvoiceRow = {
-                    id: inv.id,
-                    date: formatDdMmYyyy(new Date(inv.date)),
-                    fournisseur: inv.fournisseur,
-                    montant: inv.montant,
-                    libelle: inv.libelle,
-                    numeroPiece: inv.numeroPiece,
-                    createdAt: inv.createdAt,
-                  };
-                  setInvoices((prev) => [
-                    row,
-                    ...prev,
-                  ]);
-                }
-                setFile(null);
-                setPreviewUrl(null);
-                setInvoice({ date: "", fournisseur: "", montant: "", libelle: "" });
-                setOcrRawText("");
-                setOcrConfidence(null);
-                setShowOcrRawText(false);
-              } finally {
-                setSaving(false);
-              }
-            }}
-            className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black hover:bg-orange-700 disabled:bg-zinc-200 disabled:text-zinc-400 transition-colors"
-          >
-            {saving ? "Enregistrement..." : "Valider et enregistrer"}
-          </button>
         </div>
       </main>
 
