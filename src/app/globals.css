@@ -36,6 +36,37 @@ body {
   font-family: var(--font-geist-sans, system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Prevent iOS Safari from zooming on input focus (requires font-size >= 16px) */
+@media screen and (max-width: 767px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Safe area padding for notch/home-bar devices */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Better tap target size on mobile */
+@media (pointer: coarse) {
+  button, a[role="button"] {
+    min-height: 44px;
+  }
+}
+
+/* Remove 300ms tap delay and gray tap highlight on iOS/Android */
+button, a, input, textarea, select {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
