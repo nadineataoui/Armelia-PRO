@@ -137,19 +137,19 @@ export default async function AdminPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-100">
-            <div>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-100 gap-3">
+            <div className="min-w-0">
               <h2 className="text-sm font-black text-slate-900">Clients</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Gérez les comptes et accès clients</p>
+              <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">Gérez les comptes et accès clients</p>
             </div>
             <Link
               href="/admin/clients/new"
-              className="flex items-center gap-1.5 bg-orange-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/20"
+              className="flex items-center gap-1.5 bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl font-bold text-xs hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/20 whitespace-nowrap flex-shrink-0"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
-              Nouveau client
+              + Nouveau client
             </Link>
           </div>
           <div className="p-4 sm:p-6">
