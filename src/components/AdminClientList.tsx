@@ -94,23 +94,23 @@ export default function AdminClientList({ clients }: { clients: AdminClientRow[]
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
                   <Link
                     href={`/admin/clients/${c.id}`}
-                    className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors"
+                    className="bg-slate-100 text-slate-700 px-2 sm:px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors"
                   >
                     Détail
                   </Link>
                   <a
                     href={`/api/export/client/${c.id}`}
-                    className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors"
+                    className="bg-slate-100 text-slate-700 px-2 sm:px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors"
                   >
                     Excel
                   </a>
                   <button
                     type="button"
                     disabled={resettingClientId === c.id}
-                    className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors disabled:opacity-50"
+                    className="bg-slate-100 text-slate-700 px-2 sm:px-3 py-1.5 rounded-lg font-semibold text-xs hover:bg-slate-200 transition-colors disabled:opacity-50"
                     onClick={() => {
                       const ok = window.confirm(`Générer un nouveau mot de passe pour ${c.codeClient} ? L'ancien ne fonctionnera plus.`);
                       if (!ok) return;
@@ -129,7 +129,12 @@ export default function AdminClientList({ clients }: { clients: AdminClientRow[]
                       })();
                     }}
                   >
-                    {resettingClientId === c.id ? "..." : "Nouveau MDP"}
+                    {resettingClientId === c.id ? "..." : (
+                      <>
+                        <span className="sm:hidden">MDP</span>
+                        <span className="hidden sm:inline">Nouveau MDP</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

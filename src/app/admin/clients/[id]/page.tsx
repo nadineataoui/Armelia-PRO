@@ -29,41 +29,43 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 px-6 h-16 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/40">
+      <header className="bg-slate-900 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/40 flex-shrink-0">
             <span className="text-white font-black text-sm">A</span>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-white font-black text-sm leading-none">{client.codeClient}</p>
-            <p className="text-slate-500 text-[11px] mt-0.5">{client.nom}</p>
+            <p className="text-slate-500 text-[11px] mt-0.5 truncate">{client.nom}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
           <a
             href={`/api/export/client/${client.id}`}
-            className="flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all"
+            className="flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-semibold transition-all"
+            title="Export Excel"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Export Excel
+            <span className="hidden sm:inline">Export Excel</span>
           </a>
           <DeleteClientButton clientId={client.id} />
           <Link
             href="/admin"
-            className="flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all"
+            className="flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800 px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-semibold transition-all"
+            title="Retour"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>
-            Retour
+            <span className="hidden sm:inline">Retour</span>
           </Link>
         </div>
       </header>
 
-      <main className="p-6 space-y-6 max-w-5xl mx-auto">
+      <main className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Factures</p>
@@ -106,7 +108,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             ) : (
               <div className="space-y-1.5">
                 {invoices.map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors">
+                  <div key={inv.id} className="flex items-center justify-between gap-3 px-3 sm:px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors">
                     <div className="min-w-0 flex-1">
                       <p className="font-bold text-sm text-slate-900 truncate">{inv.numeroPiece} — {inv.fournisseur}</p>
                       <p className="text-xs text-slate-400 mt-0.5 truncate">{inv.libelle}</p>

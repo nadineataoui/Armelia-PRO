@@ -65,7 +65,7 @@ export default async function LoginPage({
       </div>
 
       {/* Right form panel */}
-      <div className="flex items-center justify-center bg-slate-50 p-8">
+      <div className="flex items-center justify-center bg-slate-50 p-5 sm:p-8 min-h-screen lg:min-h-0">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-10">
             <div className="w-8 h-8 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/30">

@@ -32,7 +32,7 @@ export default async function AdminSettingsPage() {
         </Link>
       </header>
 
-      <main className="p-6 max-w-2xl mx-auto space-y-6">
+      <main className="p-4 sm:p-6 max-w-2xl mx-auto space-y-4 sm:space-y-6">
         <div>
           <h1 className="text-2xl font-black text-slate-900 mb-1">Paramètres du compte</h1>
           <p className="text-slate-500 text-sm">Gérez vos identifiants de connexion</p>

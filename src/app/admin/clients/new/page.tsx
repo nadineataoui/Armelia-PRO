@@ -28,7 +28,7 @@ export default async function NewClientPage() {
         </Link>
       </header>
 
-      <main className="p-6 max-w-2xl mx-auto">
+      <main className="p-4 sm:p-6 max-w-2xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-black text-slate-900 mb-1">Créer un client</h1>
           <p className="text-slate-500 text-sm">Un code client et des identifiants seront générés automatiquement</p>

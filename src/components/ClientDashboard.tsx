@@ -486,7 +486,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         <LogoutButton />
       </header>
 
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5 p-5">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3 sm:gap-5 p-3 sm:p-5">
         <div className="space-y-5">
           {!fileUrl ? (
             <div
@@ -494,17 +494,17 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
               onDragOver={onDropzoneDragOver}
               onDragLeave={onDropzoneDragLeave}
               onDrop={onDropzoneDrop}
-              className={`w-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all p-12 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/30" : "border-slate-200 hover:border-slate-300"}`}
+              className={`w-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all p-6 sm:p-12 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/30" : "border-slate-200 hover:border-slate-300"}`}
             >
               <input ref={mainFileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => void onMainFileInputChange(e)} />
-              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-5">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 sm:mb-5">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                   <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
               </div>
               <h2 className="text-lg font-black text-slate-900 mb-1">Importer une facture</h2>
-              <p className="text-slate-400 text-sm text-center mb-7">Glissez un fichier ici ou choisissez une option ci-dessous</p>
+              <p className="text-slate-400 text-sm text-center mb-5 sm:mb-7">Glissez un fichier ici ou choisissez une option ci-dessous</p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
@@ -551,7 +551,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
                   Fermer
                 </button>
               </div>
-              <div className="bg-slate-800 p-3 h-[500px] flex items-center justify-center">
+              <div className="bg-slate-800 p-3 h-56 sm:h-[500px] flex items-center justify-center">
                 {file?.type === "application/pdf" ? (
                   <iframe title="Facture PDF" src={fileUrl} className="w-full h-full rounded-lg shadow-xl" />
                 ) : (
@@ -564,7 +564,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
           )}
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-sm font-black text-slate-900">Factures enregistrées</h2>
               <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{invoices.length}</span>
             </div>
@@ -575,7 +575,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             ) : (
               <div className="max-h-[320px] overflow-auto">
                 {invoices.map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <div key={inv.id} className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                     <div className="min-w-0 flex-1">
                       <p className="font-bold text-sm text-slate-900 truncate">{inv.numeroPiece} — {inv.fournisseur}</p>
                       <p className="text-xs text-slate-400 mt-0.5 truncate">{inv.date} · {inv.libelle}</p>
@@ -591,7 +591,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-black text-slate-900">Données extraites</h2>
               <p className="text-xs text-slate-400 mt-0.5">Vérifiez et corrigez avant d&apos;enregistrer</p>
@@ -604,7 +604,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             )}
           </div>
 
-          <div className="p-5 space-y-4 flex-1">
+          <div className="p-4 sm:p-5 space-y-4 flex-1">
             <div>
               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
               <input
@@ -663,7 +663,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             )}
           </div>
 
-          <div className="px-5 pb-5">
+          <div className="px-4 sm:px-5 pb-4 sm:pb-5">
             <button
               type="button"
               disabled={!canSave || saving}
