@@ -17,14 +17,16 @@ export default function AdminClientList({ clients }: { clients: AdminClientRow[]
   const [resettingClientId, setResettingClientId] = useState<string | null>(null);
   const [tempPasswordByClientId, setTempPasswordByClientId] = useState<Record<string, string>>({});
   const [copiedClientId, setCopiedClientId] = useState<string | null>(null);
+  const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
+  const [clientList, setClientList] = useState<AdminClientRow[]>(clients);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter((c) =>
+    if (!q) return clientList;
+    return clientList.filter((c) =>
       [c.nom, c.codeClient, c.id, c.email || ""].join(" ").toLowerCase().includes(q)
     );
-  }, [clients, query]);
+  }, [clientList, query]);
 
   return (
     <div className="space-y-4">
@@ -41,7 +43,7 @@ export default function AdminClientList({ clients }: { clients: AdminClientRow[]
           />
         </div>
         <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap flex-shrink-0">
-          {filtered.length} / {clients.length}
+          {filtered.length} / {clientList.length}
         </span>
       </div>
 
@@ -108,6 +110,27 @@ export default function AdminClientList({ clients }: { clients: AdminClientRow[]
                     }}
                   >
                     {resettingClientId === c.id ? "..." : "MDP"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingClientId === c.id}
+                    className="bg-white border border-red-200 text-red-500 px-2.5 py-1 rounded-lg font-semibold text-xs hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+                    onClick={() => {
+                      const ok = window.confirm(`Supprimer ${c.codeClient} — ${c.nom} ?\n\nToutes ses factures seront également supprimées. Cette action est irréversible.`);
+                      if (!ok) return;
+                      setDeletingClientId(c.id);
+                      void (async () => {
+                        try {
+                          const res = await fetch(`/api/admin/clients/${c.id}`, { method: "DELETE" });
+                          if (!res.ok) { alert("Suppression impossible."); return; }
+                          setClientList((prev) => prev.filter((cl) => cl.id !== c.id));
+                        } finally {
+                          setDeletingClientId((prev) => (prev === c.id ? null : prev));
+                        }
+                      })();
+                    }}
+                  >
+                    {deletingClientId === c.id ? "..." : "Supprimer"}
                   </button>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import Image from "next/image";
 import * as Tesseract from "tesseract.js";
 import { parseInvoice } from "@/lib/parseInvoice";
 import LogoutButton from "@/components/LogoutButton";
+import ScanAdjust from "@/components/ScanAdjust";
 
 type PdfJs = typeof import("pdfjs-dist");
 
@@ -148,6 +149,53 @@ const preprocessCanvasForOcr = (canvas: HTMLCanvasElement) => {
   ctx.putImageData(image, 0, 0);
 };
 
+/** Applique un filtre de netteté (unsharp mask léger) pour améliorer la lisibilité du texte */
+const sharpenCanvas = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+  const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const dst = ctx.createImageData(src.width, src.height);
+  const d = src.data;
+  const o = dst.data;
+  const w = src.width;
+  const h = src.height;
+  // Noyau de netteté : centre renforcé, bords atténués
+  const k = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      let r = 0, g = 0, b = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const ki = ((y + ky) * w + (x + kx)) * 4;
+          const kv = k[(ky + 1) * 3 + (kx + 1)];
+          r += d[ki] * kv;
+          g += d[ki + 1] * kv;
+          b += d[ki + 2] * kv;
+        }
+      }
+      o[i] = Math.max(0, Math.min(255, r));
+      o[i + 1] = Math.max(0, Math.min(255, g));
+      o[i + 2] = Math.max(0, Math.min(255, b));
+      o[i + 3] = 255;
+    }
+  }
+  // Bords : copie directe
+  for (let x = 0; x < w; x++) {
+    for (const y of [0, h - 1]) {
+      const i = (y * w + x) * 4;
+      o[i] = d[i]; o[i + 1] = d[i + 1]; o[i + 2] = d[i + 2]; o[i + 3] = d[i + 3];
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (const x of [0, w - 1]) {
+      const i = (y * w + x) * 4;
+      o[i] = d[i]; o[i + 1] = d[i + 1]; o[i + 2] = d[i + 2]; o[i + 3] = d[i + 3];
+    }
+  }
+  ctx.putImageData(dst, 0, 0);
+};
+
 const preprocessImageFileToCanvas = async (file: File) => {
   const url = URL.createObjectURL(file);
   try {
@@ -161,7 +209,7 @@ const preprocessImageFileToCanvas = async (file: File) => {
 
     const bitmap = await createImageBitmap(img);
     try {
-      const maxWidth = 1700;
+      const maxWidth = 2500;
       const ratio = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
       const width = Math.round(bitmap.width * ratio);
       const height = Math.round(bitmap.height * ratio);
@@ -202,6 +250,8 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
 
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [captureCountdown, setCaptureCountdown] = useState<number | null>(null);
+  const [rawScanCanvas, setRawScanCanvas] = useState<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -270,7 +320,14 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     setCameraError(null);
     setShowCamera(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      // Demande la résolution maximale disponible (4K idéalement, sinon la meilleure dispo)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+        },
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -286,21 +343,30 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     streamRef.current = null;
     setShowCamera(false);
     setCameraError(null);
+    setCaptureCountdown(null);
   }, []);
 
   const capturePhoto = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      const captured = new File([blob], `scan-${Date.now()}.jpg`, { type: "image/jpeg" });
-      closeCamera();
-      await handlePickedInvoiceFile(captured);
-    }, "image/jpeg", 0.95);
+    // Compte à rebours de 2 secondes pour stabiliser la caméra
+    setCaptureCountdown(2);
+    const tick = (n: number) => {
+      if (n <= 0) {
+        setCaptureCountdown(null);
+        const video = videoRef.current;
+        if (!video || !video.videoWidth) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d")?.drawImage(video, 0, 0);
+        closeCamera();
+        // Affiche l'écran d'ajustement des coins (style CamScanner)
+        setRawScanCanvas(canvas);
+        return;
+      }
+      setCaptureCountdown(n);
+      setTimeout(() => tick(n - 1), 1000);
+    };
+    setTimeout(() => tick(1), 1000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closeCamera]);
 
@@ -351,7 +417,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     void handlePickedInvoiceFile(picked);
   };
 
-  const processFile = async (picked: File) => {
+  const processFile = async (picked: File, preCanvas?: HTMLCanvasElement) => {
     const processId = ++processSeqRef.current;
     activeProcessRef.current = processId;
     setIsProcessing(true);
@@ -359,113 +425,197 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     setOcrRawText("");
     setOcrConfidence(null);
     try {
-      let sourceCanvas: HTMLCanvasElement | null = null;
+      let sourceCanvas: HTMLCanvasElement | null = preCanvas ?? null;
 
-      if (picked.type === "application/pdf") {
+      // ── Types partagés PDF ──────────────────────────────────────────────────────
+      type TextItem = { str: string; hasEOL?: boolean };
+      type TextContent = { items: TextItem[] };
+      type PdfViewport = { height: number; width: number };
+      type PdfPage = {
+        getViewport: (options: { scale: number }) => PdfViewport;
+        render: (options: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }) => { promise: Promise<void> };
+        getTextContent: () => Promise<TextContent>;
+      };
+      type PdfDocument = { numPages: number; getPage: (n: number) => Promise<PdfPage> };
+      type PdfGetDocumentResult = { promise: Promise<PdfDocument> };
+
+      if (sourceCanvas) {
+        // Canvas déjà prêt (ex: correction perspective) — sharpen déjà appliqué
+      } else if (picked.type === "application/pdf") {
         const pdfjs = await ensurePdfJsLoaded();
         if (activeProcessRef.current !== processId) return;
 
         const arrayBuffer = await picked.arrayBuffer();
         if (activeProcessRef.current !== processId) return;
 
-        type PdfViewport = { height: number; width: number };
-        type PdfPage = {
-          getViewport: (options: { scale: number }) => PdfViewport;
-          render: (options: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }) => { promise: Promise<void> };
-        };
-        type PdfDocument = { getPage: (pageNumber: number) => Promise<PdfPage> };
-        type PdfGetDocumentResult = { promise: Promise<PdfDocument> };
-
-        const pdf = await (pdfjs as unknown as { getDocument: (source: { data: ArrayBuffer }) => PdfGetDocumentResult })
-          .getDocument({ data: arrayBuffer })
-          .promise;
+        const pdf = await (pdfjs as unknown as { getDocument: (s: { data: ArrayBuffer }) => PdfGetDocumentResult })
+          .getDocument({ data: arrayBuffer }).promise;
         if (activeProcessRef.current !== processId) return;
+
+        // ── Tentative 1 : extraction du texte natif embarqué ─────────────────
+        // Les PDFs numériques (factures envoyées par email) contiennent déjà
+        // le texte — l'extraire est bien plus précis que l'OCR sur une image.
+        try {
+          const numPages = Math.min((pdf as unknown as { numPages: number }).numPages, 3);
+          let nativeText = "";
+          for (let p = 1; p <= numPages; p++) {
+            const pg = await pdf.getPage(p);
+            const tc = await pg.getTextContent();
+            nativeText += tc.items
+              .map((it) => it.str + (it.hasEOL ? "\n" : " "))
+              .join("") + "\n";
+          }
+          if (activeProcessRef.current !== processId) return;
+
+          if (nativeText.trim().length > 80) {
+            // Texte suffisant → pas besoin d'OCR
+            setProgress(100);
+            setOcrRawText(nativeText);
+            setOcrConfidence(99); // texte natif = confiance maximale
+            const parsed = parseInvoice(nativeText);
+            setInvoice({
+              date: parsed.date ?? "",
+              fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
+              montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
+              libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+            });
+            return; // PDF numérique traité — pas d'OCR nécessaire
+          }
+          // Sinon : PDF scanné (image emballée) → fallback OCR via canvas
+        } catch {
+          // Pas de texte natif exploitable → OCR via canvas
+        }
+
+        // ── Tentative 2 : rendu PDF en canvas (PDF scanné) ────────────────────
+        setProgress(10);
         const page = await pdf.getPage(1);
         if (activeProcessRef.current !== processId) return;
-        const baseViewport = page.getViewport({ scale: 1.0 });
-        const targetWidth = 1700;
-        const scale = Math.min(3, targetWidth / baseViewport.width);
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Impossible de créer le contexte canvas");
-
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        context.fillStyle = "white";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: context, viewport }).promise;
+        const viewport = page.getViewport({ scale: 2.5 });
+        const pdfCanvas = document.createElement("canvas");
+        pdfCanvas.width = Math.round(viewport.width);
+        pdfCanvas.height = Math.round(viewport.height);
+        const pdfCtx = pdfCanvas.getContext("2d");
+        if (!pdfCtx) throw new Error("Canvas context unavailable");
+        await page.render({ canvasContext: pdfCtx, viewport }).promise;
         if (activeProcessRef.current !== processId) return;
-        sourceCanvas = canvas;
+        sourceCanvas = pdfCanvas;
       } else {
+        // Fichier image
+        setProgress(5);
         sourceCanvas = await preprocessImageFileToCanvas(picked);
         if (activeProcessRef.current !== processId) return;
       }
 
-      const worker = await Tesseract.createWorker("fra+eng", 1, {
-        logger: (m) => {
-          if (m.status === "recognizing text") setProgress(Math.round(m.progress * 100));
-        },
-      });
-      if (activeProcessRef.current !== processId) {
-        await worker.terminate();
-        return;
-      }
-
-      let bestText = "";
-      let bestConfidence = -1;
-
-      const portrait = sourceCanvas.height > sourceCanvas.width;
-      const angles: Array<0 | 90 | 180 | 270> = portrait ? [0, 180, 90, 270] : [0, 180];
-
-      const recognizeCandidate = async (canvas: HTMLCanvasElement, angle: 0 | 90 | 180 | 270) => {
-        const result = await worker.recognize(rotateCanvasToDataUrl(canvas, angle));
-        if (activeProcessRef.current !== processId) return -1;
-        const conf = typeof result?.data?.confidence === "number" ? result.data.confidence : -1;
-        const text = result?.data?.text || "";
-        if (conf > bestConfidence) {
-          bestConfidence = conf;
-          bestText = text;
-        }
-        return conf;
-      };
-
-      const softCanvas = cloneCanvas(sourceCanvas) || sourceCanvas;
-      preprocessCanvasForOcrSoft(softCanvas);
-      for (const angle of angles) {
-        const conf = await recognizeCandidate(softCanvas, angle);
-        if (conf >= 72) break;
-      }
-
-      if (bestConfidence < 60) {
-        const binCanvas = cloneCanvas(sourceCanvas) || sourceCanvas;
-        preprocessCanvasForOcr(binCanvas);
-        for (const angle of angles) {
-          const conf = await recognizeCandidate(binCanvas, angle);
-          if (conf >= 72) break;
-        }
-      }
-
-      await worker.terminate();
+      // ── Filtre de nettété ────────────────────────────────────────────────────────────
+      if (sourceCanvas) sharpenCanvas(sourceCanvas);
       if (activeProcessRef.current !== processId) return;
 
-      setOcrRawText(bestText);
-      setOcrConfidence(bestConfidence >= 0 ? Math.round(bestConfidence) : null);
-
-      const parsed = parseInvoice(bestText);
-      setInvoice({
-        date: parsed.date ?? "",
-        fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
-        montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
-        libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+      // ── OCR avec Tesseract ──────────────────────────────────────────────────────────
+      setProgress(15);
+      const worker = await Tesseract.createWorker("fra+eng", 1, {
+        logger: (m: { status: string; progress: number }) => {
+          if (activeProcessRef.current !== processId) return;
+          if (m.status === "recognizing text") {
+            setProgress(15 + Math.round(m.progress * 70));
+          }
+        },
       });
+
+      try {
+        // ── Pré-traitement "soft" (contraste modéré, meilleur pour PDFs scanés)
+        const softCanvas = cloneCanvas(sourceCanvas!);
+        if (softCanvas) preprocessCanvasForOcrSoft(softCanvas);
+
+        const rotations: (0 | 90 | 180 | 270)[] = [0, 90, 270];
+        let bestText = "";
+        let bestConf = 0;
+
+        for (const angle of rotations) {
+          if (activeProcessRef.current !== processId) break;
+          const dataUrl = rotateCanvasToDataUrl(softCanvas ?? sourceCanvas!, angle);
+          const result = await worker.recognize(dataUrl);
+          const conf = result.data.confidence;
+          if (conf > bestConf) {
+            bestConf = conf;
+            bestText = result.data.text;
+          }
+          if (conf >= 70) break; // résultat suffisant
+        }
+
+        // Si confiance faible → essayer avec binarisation Otsu
+        if (bestConf < 70 && activeProcessRef.current === processId) {
+          const binaryCanvas = cloneCanvas(sourceCanvas!);
+          if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
+          const dataUrl = rotateCanvasToDataUrl(binaryCanvas ?? sourceCanvas!, 0);
+          const result = await worker.recognize(dataUrl);
+          if (result.data.confidence > bestConf) {
+            bestConf = result.data.confidence;
+            bestText = result.data.text;
+          }
+        }
+
+        if (activeProcessRef.current !== processId) return;
+
+        setProgress(90);
+        setOcrRawText(bestText);
+        setOcrConfidence(Math.round(bestConf));
+
+        const parsed = parseInvoice(bestText);
+        setInvoice({
+          date: parsed.date ?? "",
+          fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
+          montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
+          libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+        });
+        setProgress(100);
+      } finally {
+        await worker.terminate();
+      }
     } catch {
       alert("Erreur lors de l'analyse de la facture. Veuillez remplir les champs manuellement.");
     } finally {
       if (activeProcessRef.current === processId) setIsProcessing(false);
     }
   };
+
+  /** Après correction perspective : crée la prévisualisation + lance l'OCR */
+  const handleScanConfirm = useCallback(
+    (corrected: HTMLCanvasElement) => {
+      setRawScanCanvas(null);
+      const fileName = `scan-${Date.now()}.jpg`;
+      corrected.toBlob(
+        (blob) => {
+          if (!blob) return;
+          const file = new File([blob], fileName, { type: "image/jpeg" });
+          setFile(file);
+          setPreviewUrl(URL.createObjectURL(blob));
+          void processFile(file, corrected);
+        },
+        "image/jpeg",
+        0.95,
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  /** Sans correction : utilise l'image brute directement */
+  const handleScanSkip = useCallback(() => {
+    const canvas = rawScanCanvas;
+    if (!canvas) return;
+    setRawScanCanvas(null);
+    const fileName = `scan-${Date.now()}.jpg`;
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new File([blob], fileName, { type: "image/jpeg" });
+        void handlePickedInvoiceFile(file);
+      },
+      "image/jpeg",
+      1.0,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawScanCanvas]);
 
   const canSave = useMemo(() => {
     return !isProcessing && !!fileUrl && invoice.date.trim() && invoice.fournisseur.trim() && invoice.montant.trim() && invoice.libelle.trim();
@@ -714,6 +864,16 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         </div>
       </main>
 
+      {/* Écran d'ajustement des coins — style CamScanner */}
+      {rawScanCanvas && (
+        <ScanAdjust
+          rawCanvas={rawScanCanvas}
+          onConfirm={handleScanConfirm}
+          onSkip={handleScanSkip}
+          onCancel={() => setRawScanCanvas(null)}
+        />
+      )}
+
       {showCamera && (
         <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-lg bg-black rounded-3xl overflow-hidden flex flex-col">
@@ -731,22 +891,52 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
               </div>
             ) : (
               <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full object-cover"
-                  style={{ maxHeight: "60vh" }}
-                />
-                <div className="flex items-center justify-center p-5 bg-zinc-900">
+                {/* Zone vidéo avec cadre de guidage */}
+                <div className="relative w-full bg-black" style={{ maxHeight: "60vh", minHeight: "240px" }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full object-cover"
+                    style={{ maxHeight: "60vh" }}
+                  />
+                  {/* Cadre de guidage pour positionner la facture */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="border-2 border-orange-400 rounded-lg opacity-80"
+                      style={{ width: "85%", height: "75%" }}>
+                      <div className="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-4 border-l-4 border-orange-400 rounded-tl" />
+                      <div className="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-4 border-r-4 border-orange-400 rounded-tr" />
+                      <div className="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-4 border-l-4 border-orange-400 rounded-bl" />
+                      <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-4 border-r-4 border-orange-400 rounded-br" />
+                    </div>
+                  </div>
+                  {/* Compte à rebours */}
+                  {captureCountdown !== null && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+                      <span className="text-white font-black text-7xl opacity-90 drop-shadow-lg">{captureCountdown}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Conseils + bouton capture */}
+                <div className="bg-zinc-900 px-4 pt-3 pb-1 text-center">
+                  <p className="text-zinc-400 text-[11px] mb-3">
+                    📄 Cadrez la facture dans le rectangle · bonne lumière · tenez stable
+                  </p>
+                </div>
+                <div className="flex items-center justify-center pb-5 bg-zinc-900">
                   <button
                     type="button"
                     onClick={capturePhoto}
-                    className="w-16 h-16 rounded-full bg-white hover:bg-orange-100 transition-colors flex items-center justify-center shadow-xl"
+                    disabled={captureCountdown !== null}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-orange-100 transition-colors flex items-center justify-center shadow-xl disabled:opacity-50"
                     aria-label="Prendre une photo"
                   >
-                    <div className="w-12 h-12 rounded-full bg-orange-600" />
+                    {captureCountdown !== null ? (
+                      <span className="text-orange-600 font-black text-xl">{captureCountdown}</span>
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-orange-600" />
+                    )}
                   </button>
                 </div>
               </>

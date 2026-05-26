@@ -50,7 +50,12 @@ const splitLines = (text: string) =>
     .filter((l) => l.length > 0);
 
 const parseAmountString = (raw: string) => {
-  const s = (raw || '').replace(/[\s\u00a0\u202f]/g, '').replace(/[€$]/g, '');
+  // Supprime les préfixes/suffixes monétaires (€, $, CHF, SFr., Fr., etc.)
+  let s = (raw || '').replace(/[\s\u00a0\u202f]/g, '').replace(/[€$]/g, '');
+  // Préfixe/suffixe SFr. CHF Fr.
+  s = s.replace(/^(SFr\.?|CHF|Fr\.)/, '').replace(/(SFr\.?|CHF|Fr\.)$/, '');
+  // Apostrophe suisse comme séparateur de milliers : 4\'650.05
+  s = s.replace(/'/g, '');
   const lastComma = s.lastIndexOf(',');
   const lastDot = s.lastIndexOf('.');
   if (lastComma !== -1 && lastDot !== -1) {
@@ -70,20 +75,67 @@ const formatDdMmYyyy = (d: Date) => {
   return `${dd}/${mm}/${yyyy}`;
 };
 
+// Mois en toutes lettres (français + anglais)
+const MONTH_MAP: Record<string, number> = {
+  janvier: 1, jan: 1, january: 1,
+  février: 2, fevrier: 2, fév: 2, fev: 2, february: 2, feb: 2,
+  mars: 3, mar: 3, march: 3,
+  avril: 4, avr: 4, april: 4, apr: 4,
+  mai: 5, may: 5,
+  juin: 6, jun: 6, june: 6,
+  juillet: 7, jul: 7, july: 7,
+  août: 8, aout: 8, aoû: 8, aug: 8, august: 8,
+  septembre: 9, sep: 9, sept: 9, september: 9,
+  octobre: 10, oct: 10, october: 10,
+  novembre: 11, nov: 11, november: 11,
+  décembre: 12, decembre: 12, déc: 12, dec: 12, december: 12,
+};
+
 export const extractDate = (lines: string[], now = new Date()): string | null => {
   // Règle: prendre la première date cohérente, ignorer les dates futures.
   const today = startOfTodayUtc(now).getTime();
 
   const patterns: Array<(s: string) => { yyyy: number; mm: number; dd: number } | null> = [
+    // dd/mm/yyyy ou dd-mm-yyyy
     (s) => {
       const m = s.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
       if (!m) return null;
       return { dd: Number(m[1]), mm: Number(m[2]), yyyy: Number(m[3]) };
     },
+    // dd.mm.yyyy (format suisse/européen avec points)
+    (s) => {
+      const m = s.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
+      if (!m) return null;
+      return { dd: Number(m[1]), mm: Number(m[2]), yyyy: Number(m[3]) };
+    },
+    // yyyy-mm-dd (ISO)
     (s) => {
       const m = s.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
       if (!m) return null;
       return { yyyy: Number(m[1]), mm: Number(m[2]), dd: Number(m[3]) };
+    },
+    // dd mois yyyy — ex: "01 novembre 2024", "11 Sep 2024"
+    (s) => {
+      const m = s.match(/\b(\d{1,2})\s+([a-zA-Zà-ÿ]{3,})\.?\s+(\d{4})\b/);
+      if (!m) return null;
+      const monthKey = m[2].toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // retire accents pour lookup
+        .replace(/[^a-z]/g, '');
+      // Cherche aussi avec accents
+      const mm = MONTH_MAP[m[2].toLowerCase()] ?? MONTH_MAP[monthKey];
+      if (!mm) return null;
+      return { dd: Number(m[1]), mm, yyyy: Number(m[3]) };
+    },
+    // mois dd, yyyy — ex: "September 11, 2024"
+    (s) => {
+      const m = s.match(/\b([a-zA-Zà-ÿ]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})\b/);
+      if (!m) return null;
+      const monthKey = m[1].toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z]/g, '');
+      const mm = MONTH_MAP[m[1].toLowerCase()] ?? MONTH_MAP[monthKey];
+      if (!mm) return null;
+      return { dd: Number(m[2]), mm, yyyy: Number(m[3]) };
     },
   ];
 
@@ -109,16 +161,18 @@ export const extractDate = (lines: string[], now = new Date()): string | null =>
 };
 
 export const extractAmount = (lines: string[]): number | null => {
-  // Règle: priorité aux lignes TTC / Total TTC / Total, ignorer TVA/HT.
-  const amountRegex = /\b(\d{1,3}(?:[ .\u00a0\u202f]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2}))\b/g;
+  // Règle: priorité aux lignes TTC / Total TTC / Total / Total facture / Total CHF, ignorer TVA/HT.
+  // Supporte aussi les formats suisses : SFr. 4,650.05 / CHF 84.70 / 4'650.05
+  const amountRegex = /(?:SFr\.?\s*|CHF\s*|Fr\.?\s*)?(\d{1,3}(?:[\s\'\u00a0\u202f,.]\d{3})*[.,]\d{2}|\d+[.,]\d{2})(?:\s*(?:SFr\.?|CHF|Fr\.?))?/gi;
 
   const scoreLine = (line: string) => {
     const l = line.toLowerCase();
     const hasTtc = /\bttc\b/.test(l) || /total\s*ttc/.test(l);
     const hasTotal = /\btotal\b/.test(l);
-    const hasVatOrHt = /\btva\b/.test(l) || /\bht\b/.test(l);
+    const hasTotalFact = /total\s*(facture|chf|arrondi|invoice)/.test(l);
+    const hasVatOrHt = /\btva\b/.test(l) || /\bht\b/.test(l) || /\bmwst\b/.test(l) || /\bvat\b/.test(l);
     if (hasVatOrHt && !hasTtc) return -10;
-    return (hasTtc ? 10 : 0) + (hasTotal ? 3 : 0);
+    return (hasTtc ? 10 : 0) + (hasTotalFact ? 8 : 0) + (hasTotal ? 3 : 0);
   };
 
   const candidates: Array<{ value: number; score: number; index: number }> = [];
