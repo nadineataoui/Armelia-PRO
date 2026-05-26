@@ -204,39 +204,71 @@ export const extractAmount = (lines: string[]): number | null => {
 
 const cleanSupplierLine = (line: string) => {
   let s = (line || '').trim();
-  s = s.replace(/\b(siret|rcs|tva|vat|n°)\b.*$/i, '').trim();
+  // Supprime SIRET, RCS, TVA, N°, numéros longs
+  s = s.replace(/\b(siret|rcs|tva|vat|n°|no\.?)\b.*$/i, '').trim();
   s = s.replace(/\b\d{9,}\b/g, '').trim();
+  // Supprime URLs et emails
   s = s.replace(/\b(?:www\.[^\s]+|https?:\/\/[^\s]+)\b/gi, '').trim();
   s = s.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, '').trim();
-  s = s.replace(/[|·•]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  return s.length > 0 ? s : null;
+  // Supprime numéros de téléphone
+  s = s.replace(/(?:\+?\d[\d\s.\-()]{7,}\d)/g, '').trim();
+  // Supprime caractères parasites
+  s = s.replace(/[|·•*_]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return s.length > 1 ? s : null;
 };
 
 const isBadSupplierLine = (line: string) => {
-  const l = (line || '').toLowerCase();
+  const l = (line || '').toLowerCase().trim();
   if (l.length < 2) return true;
-  if (/^facture\b|^invoice\b|^ticket\b|^reçu\b|^recu\b/.test(l)) return true;
-  if (/\b(date|total|ttc|tva|ht)\b/.test(l)) return true;
-  if (/\b\d{5}\b/.test(l)) return true;
+  // Titres de documents
+  if (/^(facture|invoice|ticket|reçu|recu|rechnung|quittance|devis|bon de commande)\b/.test(l)) return true;
+  // Termes financiers / comptables
+  if (/\b(date|total|ttc|tva|ht|montant|amount|sous-total|subtotal|prix\s*ht|arrondi)\b/.test(l)) return true;
+  // Codes postaux français ou suisses (CH-XXXX ou 5 chiffres seuls)
+  if (/\bch-\d{4}\b/.test(l) || /^\d{4,5}[\s,]/.test(l)) return true;
+  // Libellés d'adresse
+  if (/\b(rue|avenue|av\.|boulevard|blvd\.|chemin|route|rte\.|place|allée|voie|impasse|quartier)\b/.test(l)) return true;
+  // Numéro de facture / référence
+  if (/\b(n°|num[eé]ro|number|ref\.?|référence|facture\s*n)\b.*\d/.test(l)) return true;
+  // Ligne quasi-numérique
+  if (/^[\d\s.,;:/-]+$/.test(l)) return true;
   return false;
 };
 
-export const extractSupplier = (lines: string[]): string | null => {
-  // Règle: fournisseur généralement en haut, prendre dans les 1 à 3 premières lignes valides.
-  const head = lines.slice(0, 10);
-  const firstThree = head.slice(0, 3);
+/** Retourne true si la ligne contient un suffixe juridique de société */
+const hasCompanySuffix = (line: string) =>
+  /\b(s\.?a\.?r\.?l\.?|s\.?a\.?s\.?|s\.?c\.?i\.?|s\.?n\.?c\.?|e\.?u\.?r\.?l\.?|s\.?a\.|a\.?g\.|g\.?m\.?b\.?h\.?|ltd\.?|l\.?l\.?c\.?|inc\.?|corp\.?|b\.?v\.?|n\.?v\.?|plc\.?)\b/i
+    .test(line);
 
-  for (const l of firstThree) {
+export const extractSupplier = (lines: string[]): string | null => {
+  // Priorité 1 : ligne avec label explicite (De:, Société:, Fournisseur:, etc.)
+  for (const l of lines.slice(0, 25)) {
+    const m = l.match(/^(?:de|from|soci[eé]t[eé]|fournisseur|vendeur|[eé]metteur|exp[eé]diteur|supplier|vendor)\s*[:\-]\s*(.+)/i);
+    if (m) {
+      const cleaned = cleanSupplierLine(m[1]);
+      if (cleaned && !isBadSupplierLine(cleaned)) return cleaned;
+    }
+  }
+
+  // Priorité 2 : ligne avec suffixe juridique (SA, AG, GmbH, SARL) dans les 20 premières lignes
+  for (const l of lines.slice(0, 20)) {
+    if (isBadSupplierLine(l)) continue;
     const cleaned = cleanSupplierLine(l);
     if (!cleaned) continue;
-    if (isBadSupplierLine(cleaned)) continue;
+    if (hasCompanySuffix(cleaned)) return cleaned;
+  }
+
+  // Priorité 3 : première ligne valide dans les 3 premières
+  for (const l of lines.slice(0, 3)) {
+    const cleaned = cleanSupplierLine(l);
+    if (!cleaned || isBadSupplierLine(cleaned)) continue;
     return cleaned;
   }
 
-  for (const l of head) {
+  // Priorité 4 : première ligne valide dans les 10 premières
+  for (const l of lines.slice(0, 10)) {
     const cleaned = cleanSupplierLine(l);
-    if (!cleaned) continue;
-    if (isBadSupplierLine(cleaned)) continue;
+    if (!cleaned || isBadSupplierLine(cleaned)) continue;
     return cleaned;
   }
 
@@ -255,9 +287,9 @@ export const parseInvoice = (text: string): ParsedInvoice => {
 
     const libelleSupplier = fournisseur || cleanSupplierLine(lines[0] || '') || null;
     let libelle: string | null = null;
-    if (libelleSupplier && date) libelle = `Facture ${libelleSupplier} - ${date}`;
-    else if (libelleSupplier) libelle = `Facture ${libelleSupplier}`;
-    else if (date) libelle = `Facture - ${date}`;
+    if (libelleSupplier && date) libelle = 'Facture ' + libelleSupplier + ' - ' + date;
+    else if (libelleSupplier) libelle = 'Facture ' + libelleSupplier;
+    else if (date) libelle = 'Facture - ' + date;
 
     return { date, fournisseur, montant, libelle };
   } catch {

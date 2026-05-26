@@ -5,7 +5,6 @@ import Image from "next/image";
 import * as Tesseract from "tesseract.js";
 import { parseInvoice } from "@/lib/parseInvoice";
 import LogoutButton from "@/components/LogoutButton";
-import ScanAdjust from "@/components/ScanAdjust";
 
 type PdfJs = typeof import("pdfjs-dist");
 
@@ -251,7 +250,6 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [captureCountdown, setCaptureCountdown] = useState<number | null>(null);
-  const [rawScanCanvas, setRawScanCanvas] = useState<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -359,8 +357,19 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         canvas.height = video.videoHeight;
         canvas.getContext("2d")?.drawImage(video, 0, 0);
         closeCamera();
-        // Affiche l'écran d'ajustement des coins (style CamScanner)
-        setRawScanCanvas(canvas);
+        // Traitement direct — pas de cadrage manuel
+        const fileName = `scan-${Date.now()}.jpg`;
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return;
+            const file = new File([blob], fileName, { type: "image/jpeg" });
+            setFile(file);
+            setPreviewUrl(URL.createObjectURL(blob));
+            void processFile(file, canvas);
+          },
+          "image/jpeg",
+          0.95,
+        );
         return;
       }
       setCaptureCountdown(n);
@@ -578,44 +587,6 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     }
   };
 
-  /** Après correction perspective : crée la prévisualisation + lance l'OCR */
-  const handleScanConfirm = useCallback(
-    (corrected: HTMLCanvasElement) => {
-      setRawScanCanvas(null);
-      const fileName = `scan-${Date.now()}.jpg`;
-      corrected.toBlob(
-        (blob) => {
-          if (!blob) return;
-          const file = new File([blob], fileName, { type: "image/jpeg" });
-          setFile(file);
-          setPreviewUrl(URL.createObjectURL(blob));
-          void processFile(file, corrected);
-        },
-        "image/jpeg",
-        0.95,
-      );
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  /** Sans correction : utilise l'image brute directement */
-  const handleScanSkip = useCallback(() => {
-    const canvas = rawScanCanvas;
-    if (!canvas) return;
-    setRawScanCanvas(null);
-    const fileName = `scan-${Date.now()}.jpg`;
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const file = new File([blob], fileName, { type: "image/jpeg" });
-        void handlePickedInvoiceFile(file);
-      },
-      "image/jpeg",
-      1.0,
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawScanCanvas]);
 
   const canSave = useMemo(() => {
     return !isProcessing && !!fileUrl && invoice.date.trim() && invoice.fournisseur.trim() && invoice.montant.trim() && invoice.libelle.trim();
@@ -863,16 +834,6 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
           </div>
         </div>
       </main>
-
-      {/* Écran d'ajustement des coins — style CamScanner */}
-      {rawScanCanvas && (
-        <ScanAdjust
-          rawCanvas={rawScanCanvas}
-          onConfirm={handleScanConfirm}
-          onSkip={handleScanSkip}
-          onCancel={() => setRawScanCanvas(null)}
-        />
-      )}
 
       {showCamera && (
         <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4">
