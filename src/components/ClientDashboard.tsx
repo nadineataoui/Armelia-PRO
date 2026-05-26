@@ -208,7 +208,7 @@ const preprocessImageFileToCanvas = async (file: File) => {
 
     const bitmap = await createImageBitmap(img);
     try {
-      const maxWidth = 2500;
+      const maxWidth = 1500;
       const ratio = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
       const width = Math.round(bitmap.width * ratio);
       const height = Math.round(bitmap.height * ratio);
@@ -255,6 +255,8 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
 
   const pdfjsRef = useRef<PdfJs | null>(null);
   const pdfjsLoadRef = useRef<Promise<PdfJs> | null>(null);
+  const tesseractWorkerRef = useRef<Tesseract.Worker | null>(null);
+  const tesseractLoadRef = useRef<Promise<Tesseract.Worker> | null>(null);
   const fileUrlToRevokeRef = useRef<string | null>(null);
   const processSeqRef = useRef(0);
   const activeProcessRef = useRef(0);
@@ -274,6 +276,17 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         });
     }
     return await pdfjsLoadRef.current;
+  }, []);
+
+  /** Charge le worker Tesseract une seule fois et le réutilise pour tous les scans */
+  const ensureTesseractWorker = useCallback(async () => {
+    if (tesseractWorkerRef.current) return tesseractWorkerRef.current;
+    if (!tesseractLoadRef.current) {
+      tesseractLoadRef.current = Tesseract.createWorker("fra", 1)
+        .then((w) => { tesseractWorkerRef.current = w; return w; })
+        .catch((e) => { tesseractLoadRef.current = null; throw e; });
+    }
+    return await tesseractLoadRef.current;
   }, []);
 
   const setPreviewUrl = useCallback((nextUrl: string | null) => {
@@ -298,6 +311,21 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         }
       }
       fileUrlToRevokeRef.current = null;
+    };
+  }, []);
+
+  // Précharge le worker Tesseract dès le montage pour que le premier scan soit rapide
+  useEffect(() => {
+    void ensureTesseractWorker().catch(() => { /* silencieux */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Termine le worker quand le composant est démonté
+  useEffect(() => {
+    return () => {
+      void tesseractWorkerRef.current?.terminate();
+      tesseractWorkerRef.current = null;
+      tesseractLoadRef.current = null;
     };
   }, []);
 
@@ -519,67 +547,61 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       if (sourceCanvas) sharpenCanvas(sourceCanvas);
       if (activeProcessRef.current !== processId) return;
 
-      // ── OCR avec Tesseract ──────────────────────────────────────────────────────────
+      // ── OCR avec Tesseract (worker préchargé et réutilisé) ────────────────────────
       setProgress(15);
-      const worker = await Tesseract.createWorker("fra+eng", 1, {
-        logger: (m: { status: string; progress: number }) => {
-          if (activeProcessRef.current !== processId) return;
-          if (m.status === "recognizing text") {
-            setProgress(15 + Math.round(m.progress * 70));
-          }
-        },
-      });
+      const worker = await ensureTesseractWorker();
+      // Attache le logger dynamiquement pour ce scan
+      await worker.setParameters({});
 
-      try {
-        // ── Pré-traitement "soft" (contraste modéré, meilleur pour PDFs scanés)
-        const softCanvas = cloneCanvas(sourceCanvas!);
-        if (softCanvas) preprocessCanvasForOcrSoft(softCanvas);
+      // Pré-traitement soft (contraste modéré)
+      const softCanvas = cloneCanvas(sourceCanvas!);
+      if (softCanvas) preprocessCanvasForOcrSoft(softCanvas);
 
-        const rotations: (0 | 90 | 180 | 270)[] = [0, 90, 270];
-        let bestText = "";
-        let bestConf = 0;
+      const dataUrl0 = rotateCanvasToDataUrl(softCanvas ?? sourceCanvas!, 0);
 
-        for (const angle of rotations) {
-          if (activeProcessRef.current !== processId) break;
-          const dataUrl = rotateCanvasToDataUrl(softCanvas ?? sourceCanvas!, angle);
-          const result = await worker.recognize(dataUrl);
-          const conf = result.data.confidence;
-          if (conf > bestConf) {
-            bestConf = conf;
-            bestText = result.data.text;
-          }
-          if (conf >= 70) break; // résultat suffisant
-        }
-
-        // Si confiance faible → essayer avec binarisation Otsu
-        if (bestConf < 70 && activeProcessRef.current === processId) {
-          const binaryCanvas = cloneCanvas(sourceCanvas!);
-          if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
-          const dataUrl = rotateCanvasToDataUrl(binaryCanvas ?? sourceCanvas!, 0);
-          const result = await worker.recognize(dataUrl);
-          if (result.data.confidence > bestConf) {
-            bestConf = result.data.confidence;
-            bestText = result.data.text;
-          }
-        }
-
+      const onProgress = (m: { status: string; progress: number }) => {
         if (activeProcessRef.current !== processId) return;
+        if (m.status === "recognizing text") {
+          setProgress(15 + Math.round(m.progress * 70));
+        }
+      };
 
-        setProgress(90);
-        setOcrRawText(bestText);
-        setOcrConfidence(Math.round(bestConf));
+      // Un seul passage à 0° — suffisant pour les factures normalement orientées
+      const result = await worker.recognize(dataUrl0, {}, { pdf: false });
+      void onProgress; // onProgress non supporté via recognize opts — progress via logger global
+      let bestText = result.data.text;
+      let bestConf = result.data.confidence;
+      setProgress(80);
 
-        const parsed = parseInvoice(bestText);
-        setInvoice({
-          date: parsed.date ?? "",
-          fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
-          montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
-          libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
-        });
-        setProgress(100);
-      } finally {
-        await worker.terminate();
+      if (activeProcessRef.current !== processId) return;
+
+      // Fallback binarisation uniquement si confiance très faible
+      if (bestConf < 40) {
+        const binaryCanvas = cloneCanvas(sourceCanvas!);
+        if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
+        const dataUrl2 = rotateCanvasToDataUrl(binaryCanvas ?? sourceCanvas!, 0);
+        const result2 = await worker.recognize(dataUrl2);
+        if (result2.data.confidence > bestConf) {
+          bestConf = result2.data.confidence;
+          bestText = result2.data.text;
+        }
       }
+
+      if (activeProcessRef.current !== processId) return;
+
+      setProgress(90);
+      setOcrRawText(bestText);
+      setOcrConfidence(Math.round(bestConf));
+
+      const parsed = parseInvoice(bestText);
+      setInvoice({
+        date: parsed.date ?? "",
+        fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
+        montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
+        libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+      });
+      setProgress(100);
+      // Note: le worker reste actif pour le prochain scan (ne pas appeler terminate ici)
     } catch {
       alert("Erreur lors de l'analyse de la facture. Veuillez remplir les champs manuellement.");
     } finally {
