@@ -1,21 +1,34 @@
 import { NextResponse } from "next/server";
 
-const PROMPT = `Tu es un assistant comptable expert. Analyse cette facture et extrais les données.
-Réponds UNIQUEMENT en JSON valide, sans texte avant ni après.
+const PROMPT = `Tu es un assistant comptable expert en factures suisses et européennes.
+Analyse cette facture et réponds UNIQUEMENT en JSON valide, sans texte avant ni après.
 
 JSON attendu (null si non trouvé) :
 {
   "date": "JJ/MM/AAAA",
-  "fournisseur": "NOM SOCIÉTÉ ÉMETTRICE EN MAJUSCULES (max 50 car.)",
+  "fournisseur": "NOM SOCIÉTÉ ÉMETTRICE EN MAJUSCULES",
   "montant": 123.45,
   "libelle": "FACTURE [FOURNISSEUR] - [DATE]"
 }
 
-Règles :
-- date : date d'émission (pas l'échéance), format JJ/MM/AAAA
-- fournisseur : société qui ENVOIE la facture. Ignore tampons, adresses postales, codes B2-POST. Cherche le nom de marque principal.
-- montant : total TTC final, nombre décimal sans symbole monétaire
-- libelle : court résumé en majuscules`;
+RÈGLES STRICTES :
+
+1. DATE : Prendre la date D'ÉMISSION de la facture (pas la date d'échéance, pas la date de livraison).
+   - Chercher les labels : "Date de facturation", "Invoice Date", "Date", "Facture du"
+   - Format de sortie : JJ/MM/AAAA
+
+2. FOURNISSEUR : C'est la société qui ENVOIE la facture (le vendeur).
+   - Le client destinataire dans ces factures est TOUJOURS "Paragon Sport SA" ou "McBoard" — NE PAS prendre ces noms.
+   - Chercher le NOM DE MARQUE/LOGO en haut du document : ex. "MONS ROYALE", "SIDESHORE", "fssc", "localsearch"
+   - Ignorer complètement les tampons, les annotations manuscrites et les adresses postales.
+   - Retourner en MAJUSCULES.
+
+3. MONTANT : Prendre le TOTAL FINAL imprimé/typographié (souvent surligné en jaune ou en gras).
+   - Chercher : "Total CHF", "Total facture", "Total arrondi", "TOTAL", "SFr.", montant surligné
+   - IGNORER tous les chiffres écrits à la main (annotations manuscrites en haut ou sur les côtés)
+   - Retourner un nombre décimal sans symbole monétaire (ex: 4650.05)
+
+4. LIBELLÉ : "FACTURE [FOURNISSEUR] - [DATE]" en majuscules.`;
 
 async function callGemini(imageBase64: string, mediaType: string): Promise<string> {
   const apiKey = process.env.GOOGLE_AI_API_KEY;
@@ -23,10 +36,10 @@ async function callGemini(imageBase64: string, mediaType: string): Promise<strin
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const body = {
     contents: [{ parts: [{ inlineData: { mimeType: mediaType, data: imageBase64 } }, { text: PROMPT }] }],
-    generationConfig: { maxOutputTokens: 256, temperature: 0 },
+    generationConfig: { maxOutputTokens: 300, temperature: 0 },
   };
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`Gemini ${res.status}`);
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
   const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
@@ -36,8 +49,8 @@ async function callGeminiText(text: string): Promise<string> {
   if (!apiKey) throw new Error("GOOGLE_AI_API_KEY manquante");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const body = {
-    contents: [{ parts: [{ text: `${PROMPT}\n\nTexte facture:\n"""\n${text.slice(0, 4000)}\n"""` }] }],
-    generationConfig: { maxOutputTokens: 256, temperature: 0 },
+    contents: [{ parts: [{ text: `${PROMPT}\n\nTexte de la facture :\n"""\n${text.slice(0, 4000)}\n"""` }] }],
+    generationConfig: { maxOutputTokens: 300, temperature: 0 },
   };
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`Gemini ${res.status}`);
