@@ -462,9 +462,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     setOcrRawText("");
     setOcrConfidence(null);
     try {
-      let sourceCanvas: HTMLCanvasElement | null = preCanvas ?? null;
-
-      // ── Types partagés PDF ──────────────────────────────────────────────────────
+      // ── Types partagés PDF ──────────────────────────────────────────────────
       type TextItem = { str: string; hasEOL?: boolean };
       type TextContent = { items: TextItem[] };
       type PdfViewport = { height: number; width: number };
@@ -476,138 +474,193 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       type PdfDocument = { numPages: number; getPage: (n: number) => Promise<PdfPage> };
       type PdfGetDocumentResult = { promise: Promise<PdfDocument> };
 
-      if (sourceCanvas) {
-        // Canvas déjà prêt (ex: correction perspective) — sharpen déjà appliqué
-      } else if (picked.type === "application/pdf") {
+      /** Envoie le canvas à Gemini Vision (gratuit) — retourne true si succès */
+      const tryGeminiVision = async (canvas: HTMLCanvasElement): Promise<boolean> => {
+        try {
+          // Redimensionner à 1200px max pour Gemini
+          const MAX = 1200;
+          const ratio = Math.max(canvas.width, canvas.height) > MAX
+            ? MAX / Math.max(canvas.width, canvas.height) : 1;
+          const w = Math.round(canvas.width * ratio);
+          const h = Math.round(canvas.height * ratio);
+          const resized = document.createElement("canvas");
+          resized.width = w; resized.height = h;
+          const ctx = resized.getContext("2d");
+          if (!ctx) return false;
+          ctx.fillStyle = "white";
+          ctx.fillRect(0, 0, w, h);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(canvas, 0, 0, w, h);
+          const base64 = resized.toDataURL("image/jpeg", 0.9).split(",")[1] ?? "";
+
+          if (activeProcessRef.current !== processId) return true;
+          setProgress(50);
+
+          const res = await fetch("/api/parse-invoice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg" }),
+          });
+          if (!res.ok) return false;
+          if (activeProcessRef.current !== processId) return true;
+
+          const data = (await res.json()) as {
+            date?: string | null; fournisseur?: string | null;
+            montant?: number | null; libelle?: string | null;
+            error?: string;
+          };
+          if (data.error) return false;
+
+          setProgress(95);
+          setOcrConfidence(99);
+          setInvoice({
+            date: data.date ?? "",
+            fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
+            montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
+            libelle: data.libelle ? data.libelle.toUpperCase() : "",
+          });
+          setProgress(100);
+          return true;
+        } catch { return false; }
+      };
+
+      let sourceCanvas: HTMLCanvasElement | null = preCanvas ?? null;
+
+      // ── PDF numérique : texte natif (instantané, pas d\'IA nécessaire) ──────
+      if (!preCanvas && picked.type === "application/pdf") {
+        setProgress(10);
         const pdfjs = await ensurePdfJsLoaded();
         if (activeProcessRef.current !== processId) return;
-
         const arrayBuffer = await picked.arrayBuffer();
         if (activeProcessRef.current !== processId) return;
-
         const pdf = await (pdfjs as unknown as { getDocument: (s: { data: ArrayBuffer }) => PdfGetDocumentResult })
           .getDocument({ data: arrayBuffer }).promise;
         if (activeProcessRef.current !== processId) return;
 
-        // ── Tentative 1 : extraction du texte natif embarqué ─────────────────
-        // Les PDFs numériques (factures envoyées par email) contiennent déjà
-        // le texte — l'extraire est bien plus précis que l'OCR sur une image.
         try {
           const numPages = Math.min((pdf as unknown as { numPages: number }).numPages, 3);
           let nativeText = "";
           for (let p = 1; p <= numPages; p++) {
             const pg = await pdf.getPage(p);
             const tc = await pg.getTextContent();
-            nativeText += tc.items
-              .map((it) => it.str + (it.hasEOL ? "\n" : " "))
-              .join("") + "\n";
+            nativeText += tc.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("") + "\n";
           }
           if (activeProcessRef.current !== processId) return;
 
           if (nativeText.trim().length > 80) {
-            // Texte suffisant → pas besoin d'OCR
-            setProgress(100);
+            setProgress(40);
             setOcrRawText(nativeText);
-            setOcrConfidence(99); // texte natif = confiance maximale
-            const parsed = parseInvoice(nativeText);
-            setInvoice({
-              date: parsed.date ?? "",
-              fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
-              montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
-              libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+            setOcrConfidence(99);
+            // Essaie Gemini pour la précision, fallback regex
+            const res = await fetch("/api/parse-invoice", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ocrText: nativeText }),
             });
-            return; // PDF numérique traité — pas d'OCR nécessaire
+            if (res.ok && activeProcessRef.current === processId) {
+              const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
+              if (!data.error) {
+                setInvoice({
+                  date: data.date ?? "",
+                  fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
+                  montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
+                  libelle: data.libelle ? data.libelle.toUpperCase() : "",
+                });
+                setProgress(100);
+                return;
+              }
+            }
+            // Fallback regex
+            const p = parseInvoice(nativeText);
+            setInvoice({
+              date: p.date ?? "",
+              fournisseur: p.fournisseur ? p.fournisseur.toUpperCase().slice(0, 50) : "",
+              montant: p.montant === null ? "" : p.montant.toFixed(2),
+              libelle: p.libelle ? p.libelle.toUpperCase() : "",
+            });
+            setProgress(100);
+            return;
           }
-          // Sinon : PDF scanné (image emballée) → fallback OCR via canvas
-        } catch {
-          // Pas de texte natif exploitable → OCR via canvas
-        }
+        } catch { /* PDF scanné → continuer */ }
 
-        // ── Tentative 2 : rendu PDF en canvas (PDF scanné) ────────────────────
-        setProgress(10);
+        // PDF scanné → canvas
+        setProgress(20);
         const page = await pdf.getPage(1);
         if (activeProcessRef.current !== processId) return;
-        const viewport = page.getViewport({ scale: 2.5 });
+        const viewport = page.getViewport({ scale: 2.0 });
         const pdfCanvas = document.createElement("canvas");
         pdfCanvas.width = Math.round(viewport.width);
         pdfCanvas.height = Math.round(viewport.height);
         const pdfCtx = pdfCanvas.getContext("2d");
-        if (!pdfCtx) throw new Error("Canvas context unavailable");
+        if (!pdfCtx) throw new Error("Canvas unavailable");
         await page.render({ canvasContext: pdfCtx, viewport }).promise;
         if (activeProcessRef.current !== processId) return;
         sourceCanvas = pdfCanvas;
-      } else {
-        // Fichier image
+      } else if (!preCanvas) {
         setProgress(5);
         sourceCanvas = await preprocessImageFileToCanvas(picked);
         if (activeProcessRef.current !== processId) return;
       }
 
-      // ── Filtre de nettété ────────────────────────────────────────────────────────────
-      if (sourceCanvas) sharpenCanvas(sourceCanvas);
-      if (activeProcessRef.current !== processId) return;
+      if (!sourceCanvas) throw new Error("Pas de canvas source");
+      setProgress(25);
 
-      // ── OCR avec Tesseract (worker préchargé et réutilisé) ────────────────────────
-      setProgress(15);
-      const worker = await ensureTesseractWorker();
-      // Attache le logger dynamiquement pour ce scan
-      await worker.setParameters({});
+      // ── Tentative 1 : Gemini Vision (gratuit, précis sur docs complexes) ────
+      const geminiOk = await tryGeminiVision(sourceCanvas);
+      if (geminiOk || activeProcessRef.current !== processId) return;
 
-      // Pré-traitement soft (contraste modéré)
-      const softCanvas = cloneCanvas(sourceCanvas!);
-      if (softCanvas) preprocessCanvasForOcrSoft(softCanvas);
-
-      const dataUrl0 = rotateCanvasToDataUrl(softCanvas ?? sourceCanvas!, 0);
-
-      const onProgress = (m: { status: string; progress: number }) => {
-        if (activeProcessRef.current !== processId) return;
-        if (m.status === "recognizing text") {
-          setProgress(15 + Math.round(m.progress * 70));
-        }
-      };
-
-      // Un seul passage à 0° — suffisant pour les factures normalement orientées
-      const result = await worker.recognize(dataUrl0, {}, { pdf: false });
-      void onProgress; // onProgress non supporté via recognize opts — progress via logger global
-      let bestText = result.data.text;
-      let bestConf = result.data.confidence;
-      setProgress(80);
-
-      if (activeProcessRef.current !== processId) return;
-
-      // Fallback binarisation uniquement si confiance très faible
-      if (bestConf < 40) {
-        const binaryCanvas = cloneCanvas(sourceCanvas!);
-        if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
-        const dataUrl2 = rotateCanvasToDataUrl(binaryCanvas ?? sourceCanvas!, 0);
-        const result2 = await worker.recognize(dataUrl2);
-        if (result2.data.confidence > bestConf) {
-          bestConf = result2.data.confidence;
-          bestText = result2.data.text;
+      // ── Fallback : Tesseract local (si Gemini indisponible) ─────────────────
+      setProgress(30);
+      const MAX_PX = 1400;
+      const bigSide = Math.max(sourceCanvas.width, sourceCanvas.height);
+      if (bigSide > MAX_PX) {
+        const r = MAX_PX / bigSide;
+        const small = document.createElement("canvas");
+        small.width = Math.round(sourceCanvas.width * r);
+        small.height = Math.round(sourceCanvas.height * r);
+        const sCtx = small.getContext("2d");
+        if (sCtx) {
+          sCtx.imageSmoothingEnabled = true;
+          sCtx.imageSmoothingQuality = "high";
+          sCtx.fillStyle = "white";
+          sCtx.fillRect(0, 0, small.width, small.height);
+          sCtx.drawImage(sourceCanvas, 0, 0, small.width, small.height);
+          sourceCanvas = small;
         }
       }
+      sharpenCanvas(sourceCanvas);
+      const binaryCanvas = cloneCanvas(sourceCanvas);
+      if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
+      if (activeProcessRef.current !== processId) return;
 
+      setProgress(35);
+      const worker = await ensureTesseractWorker();
+      if (activeProcessRef.current !== processId) return;
+      const dataUrl = (binaryCanvas ?? sourceCanvas).toDataURL("image/png");
+      const result = await worker.recognize(dataUrl);
       if (activeProcessRef.current !== processId) return;
 
       setProgress(90);
-      setOcrRawText(bestText);
-      setOcrConfidence(Math.round(bestConf));
-
-      const parsed = parseInvoice(bestText);
+      const text = result.data.text;
+      setOcrRawText(text);
+      setOcrConfidence(Math.round(result.data.confidence));
+      const p = parseInvoice(text);
       setInvoice({
-        date: parsed.date ?? "",
-        fournisseur: parsed.fournisseur ? parsed.fournisseur.toUpperCase().slice(0, 50) : "",
-        montant: parsed.montant === null ? "" : parsed.montant.toFixed(2),
-        libelle: parsed.libelle ? parsed.libelle.toUpperCase() : "",
+        date: p.date ?? "",
+        fournisseur: p.fournisseur ? p.fournisseur.toUpperCase().slice(0, 50) : "",
+        montant: p.montant === null ? "" : p.montant.toFixed(2),
+        libelle: p.libelle ? p.libelle.toUpperCase() : "",
       });
       setProgress(100);
-      // Note: le worker reste actif pour le prochain scan (ne pas appeler terminate ici)
     } catch {
-      alert("Erreur lors de l'analyse de la facture. Veuillez remplir les champs manuellement.");
+      alert("Erreur lors de l\'analyse. Veuillez remplir les champs manuellement.");
     } finally {
       if (activeProcessRef.current === processId) setIsProcessing(false);
     }
   };
+
+
 
 
   const canSave = useMemo(() => {
@@ -640,11 +693,19 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
               className={`w-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all p-6 sm:p-12 bg-white ${isDragActive ? "border-orange-500 bg-orange-50/30" : "border-slate-200 hover:border-slate-300"}`}
             >
               <input ref={mainFileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => void onMainFileInputChange(e)} />
-              <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 sm:mb-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-                </svg>
+              <div className="flex items-center gap-2 mb-4 sm:mb-5">
+                <div className="w-10 h-12 bg-red-50 border border-red-100 rounded-lg flex flex-col items-center justify-center gap-0.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <span className="text-[8px] font-black text-red-400">PDF</span>
+                </div>
+                <div className="w-10 h-12 bg-blue-50 border border-blue-100 rounded-lg flex flex-col items-center justify-center gap-0.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                  </svg>
+                  <span className="text-[8px] font-black text-blue-400">IMG</span>
+                </div>
               </div>
               <h2 className="text-lg font-black text-slate-900 mb-1">Importer une facture</h2>
               <p className="text-slate-400 text-sm text-center mb-5 sm:mb-7">Glissez un fichier ici ou choisissez une option ci-dessous</p>
@@ -660,7 +721,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
                 <button
                   type="button"
                   onClick={() => void openCamera()}
-                  className="flex items-center justify-center gap-2 bg-slate-800 text-white py-2.5 px-5 rounded-xl font-bold text-sm hover:bg-slate-900 transition-colors"
+                  className={`flex items-center justify-center gap-2 bg-slate-800 text-white py-2.5 px-5 rounded-xl font-bold text-sm hover:bg-slate-900 transition-colors${isProcessing ? " animate-pulse" : ""}`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                   Scanner par caméra
@@ -706,6 +767,21 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             </div>
           )}
 
+          {invoices.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-4">
+              <div className="flex-1">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total factures</p>
+                <p className="text-2xl font-black text-emerald-600">
+                  {invoices.reduce((s, inv) => s + inv.montant, 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Documents</p>
+                <p className="text-2xl font-black text-slate-900">{invoices.length}</p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
             <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-sm font-black text-slate-900">Factures enregistrées</h2>
@@ -734,6 +810,14 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+          {isProcessing && (
+            <div className="h-1 bg-slate-100 rounded-t-2xl overflow-hidden">
+              <div
+                className="h-full bg-orange-500 transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
           <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-black text-slate-900">Données extraites</h2>
@@ -793,9 +877,14 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
                 {showOcrRawText ? "Masquer texte OCR" : "Voir texte brut OCR"}
               </button>
               {ocrConfidence !== null && (
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${ocrConfidence >= 70 ? "bg-emerald-50 text-emerald-600" : ocrConfidence >= 50 ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-600"}`}>
-                  Confiance : {ocrConfidence}%
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${ocrConfidence >= 70 ? "bg-emerald-50 text-emerald-600" : ocrConfidence >= 50 ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-600"}`}>
+                    Confiance : {ocrConfidence}%
+                  </span>
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${ocrConfidence >= 80 ? "bg-emerald-100 text-emerald-700" : ocrConfidence >= 60 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
+                    {ocrConfidence >= 80 ? "Excellent" : ocrConfidence >= 60 ? "Bon" : "Faible"}
+                  </span>
+                </div>
               )}
             </div>
 

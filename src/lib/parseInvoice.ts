@@ -226,12 +226,17 @@ const isBadSupplierLine = (line: string) => {
   if (/\b(date|total|ttc|tva|ht|montant|amount|sous-total|subtotal|prix\s*ht|arrondi)\b/.test(l)) return true;
   // Codes postaux français ou suisses (CH-XXXX ou 5 chiffres seuls)
   if (/\bch-\d{4}\b/.test(l) || /^\d{4,5}[\s,]/.test(l)) return true;
+  // Marquages postaux suisses (P.P., B2-POST, Post CH AG)
+  if (/\bp\.?\s*p\.?\b/.test(l) || /b2-post/i.test(l) || /post\s*ch\s*ag/i.test(l)) return true;
   // Libellés d'adresse
   if (/\b(rue|avenue|av\.|boulevard|blvd\.|chemin|route|rte\.|place|allée|voie|impasse|quartier)\b/.test(l)) return true;
   // Numéro de facture / référence
   if (/\b(n°|num[eé]ro|number|ref\.?|référence|facture\s*n)\b.*\d/.test(l)) return true;
-  // Ligne quasi-numérique
+  // Ligne quasi-numérique ou très courte avec symboles
   if (/^[\d\s.,;:/-]+$/.test(l)) return true;
+  // Lignes avec trop de caractères spéciaux (OCR garbage)
+  const specialRatio = (l.match(/[^a-z0-9\s\-.,&']/g) || []).length / Math.max(l.length, 1);
+  if (specialRatio > 0.25) return true;
   return false;
 };
 

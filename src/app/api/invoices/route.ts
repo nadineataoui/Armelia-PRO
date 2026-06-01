@@ -69,5 +69,29 @@ export const POST = async (req: Request) => {
     select: { id: true, date: true, fournisseur: true, montant: true, libelle: true, numeroPiece: true, fileName: true, createdAt: true },
   });
 
+  // Send email notification (non-blocking)
+  void (async () => {
+    try {
+      const clientData = await prisma.client.findUnique({
+        where: { id: session.user.clientId! },
+        select: { nom: true, email: true, users: { select: { email: true }, take: 1 } },
+      });
+      const emailTo = clientData?.users[0]?.email || clientData?.email;
+      if (emailTo && clientData) {
+        const { sendInvoiceConfirmation } = await import("@/lib/mailer");
+        await sendInvoiceConfirmation({
+          toEmail: emailTo,
+          clientNom: clientData.nom,
+          numeroPiece: invoice.numeroPiece,
+          fournisseur: invoice.fournisseur,
+          montant: invoice.montant,
+          date: invoice.date.toLocaleDateString("fr-FR"),
+        });
+      }
+    } catch (e) {
+      console.error("[email]", e);
+    }
+  })();
+
   return NextResponse.json({ invoice });
 };

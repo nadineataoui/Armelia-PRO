@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import ClientForm from "@/components/ClientForm";
 import DeleteClientButton from "@/components/DeleteClientButton";
 import ClientPasswordReset from "@/components/ClientPasswordReset";
+import AdminInvoiceList from "@/components/AdminInvoiceList";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerAuthSession();
@@ -94,37 +95,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-black text-slate-900">Factures</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{invoices.length} document{invoices.length > 1 ? "s" : ""}</p>
-            </div>
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="text-sm font-black text-slate-900">Factures</h2>
           </div>
           <div className="p-4">
-            {invoices.length === 0 ? (
-              <div className="text-center py-10">
-                <p className="text-slate-400 text-sm">Aucune facture enregistrée</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {invoices.map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between gap-3 px-3 sm:px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-sm text-slate-900 truncate">{inv.numeroPiece} — {inv.fournisseur}</p>
-                      <p className="text-xs text-slate-400 mt-0.5 truncate">{inv.libelle}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-mono font-black text-sm text-slate-900">
-                        {inv.montant.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {inv.date.toLocaleDateString("fr-FR")}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <AdminInvoiceList invoices={invoices} clientId={client.id} />
           </div>
         </div>
       </main>

@@ -10,7 +10,11 @@ export default async function AdminPage() {
   if (!session?.user) redirect("/login");
   if (session.user.role !== "ADMIN") redirect("/client");
 
-  const [clientCount, invoiceCount, clients, invoiceTotals] = await Promise.all([
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+  sixMonthsAgo.setDate(1);
+
+  const [clientCount, invoiceCount, clients, invoiceTotals, recentInvoices, recentInvoicesList] = await Promise.all([
     prisma.client.count(),
     prisma.invoice.count(),
     prisma.client.findMany({
@@ -26,6 +30,23 @@ export default async function AdminPage() {
     prisma.invoice.groupBy({
       by: ["clientId"],
       _sum: { montant: true },
+    }),
+    prisma.invoice.findMany({
+      where: { date: { gte: sixMonthsAgo } },
+      select: { date: true, montant: true, fournisseur: true, clientId: true },
+      orderBy: { date: "asc" },
+    }),
+    prisma.invoice.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        numeroPiece: true,
+        fournisseur: true,
+        montant: true,
+        date: true,
+        client: { select: { codeClient: true, nom: true } },
+      },
     }),
   ]);
 
@@ -44,6 +65,24 @@ export default async function AdminPage() {
   }));
 
   const totalCredit = invoiceTotals.reduce((s, r) => s + (r._sum.montant ?? 0), 0);
+
+  // Build last 6 months labels and totals
+  const monthLabels = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+  const now = new Date();
+  const monthlyData: { label: string; total: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const total = recentInvoices
+      .filter((inv) => {
+        const id = new Date(inv.date);
+        return id.getUTCFullYear() === y && id.getUTCMonth() === m;
+      })
+      .reduce((s, inv) => s + inv.montant, 0);
+    monthlyData.push({ label: `${monthLabels[m]} ${y}`, total });
+  }
+  const maxMonthly = Math.max(...monthlyData.map((d) => d.total), 1);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -133,6 +172,73 @@ export default async function AdminPage() {
               {totalCredit.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
             </p>
             <p className="text-xs text-slate-400 mt-1">montant cumulé</p>
+          </div>
+        </div>
+
+        {/* Monthly bar chart */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 sm:p-6">
+          <h2 className="text-sm font-black text-slate-900 mb-4">Volume mensuel (6 derniers mois)</h2>
+          <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" className="w-full">
+            {monthlyData.map((d, i) => {
+              const barW = 60;
+              const gap = 40;
+              const x = i * (barW + gap) + 20;
+              const maxH = 130;
+              const barH = d.total > 0 ? Math.max(4, Math.round((d.total / maxMonthly) * maxH)) : 4;
+              const y = 150 - barH;
+              const shortLabel = d.label.slice(0, 3);
+              const amountLabel = d.total >= 1000
+                ? `${(d.total / 1000).toFixed(1)}k`
+                : d.total > 0 ? Math.round(d.total).toString() : "0";
+              return (
+                <g key={d.label}>
+                  <rect x={x} y={y} width={barW} height={barH} rx={6} fill="#EA580C" fillOpacity={d.total > 0 ? 1 : 0.15} />
+                  <text x={x + barW / 2} y={y - 6} textAnchor="middle" fontSize={10} fill="#EA580C" fontWeight="700">
+                    {d.total > 0 ? amountLabel : ""}
+                  </text>
+                  <text x={x + barW / 2} y={170} textAnchor="middle" fontSize={10} fill="#94A3B8" fontWeight="600">
+                    {shortLabel}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+
+        {/* Recent invoices across all clients */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+          <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
+            <h2 className="text-sm font-black text-slate-900">Factures récentes</h2>
+            <p className="text-xs text-slate-400 mt-0.5">10 dernières factures enregistrées</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {recentInvoicesList.length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-slate-400 text-sm">Aucune facture</p>
+              </div>
+            ) : (
+              recentInvoicesList.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md flex-shrink-0">
+                      {inv.client.codeClient}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm text-slate-900 truncate">{inv.fournisseur}</p>
+                      <p className="text-[11px] text-slate-400">{inv.numeroPiece}</p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-mono font-black text-sm text-slate-900">
+                      {inv.montant.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {new Date(inv.date).toLocaleDateString("fr-FR")}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
