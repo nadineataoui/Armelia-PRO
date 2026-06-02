@@ -454,6 +454,45 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     void handlePickedInvoiceFile(picked);
   };
 
+  /**
+   * Envoie le texte OCR à Gemini pour extraction précise, fallback regex si indisponible.
+   * Approche texte = bien plus rapide que Vision (pas de timeout Vercel).
+   */
+  const parseAndSetInvoice = useCallback(async (text: string, processId: number) => {
+    if (activeProcessRef.current !== processId) return;
+    try {
+      const res = await fetch("/api/parse-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ocrText: text }),
+      });
+      if (res.ok && activeProcessRef.current === processId) {
+        const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
+        if (!data.error) {
+          setInvoice({
+            date: data.date ?? "",
+            fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
+            montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
+            libelle: data.libelle ? data.libelle.toUpperCase() : "",
+          });
+          setProgress(100);
+          return;
+        }
+      }
+    } catch { /* fallback ci-dessous */ }
+    // Fallback regex local
+    if (activeProcessRef.current !== processId) return;
+    const p = parseInvoice(text);
+    setInvoice({
+      date: p.date ?? "",
+      fournisseur: p.fournisseur ? p.fournisseur.toUpperCase().slice(0, 50) : "",
+      montant: p.montant === null ? "" : p.montant.toFixed(2),
+      libelle: p.libelle ? p.libelle.toUpperCase() : "",
+    });
+    setProgress(100);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const processFile = async (picked: File, preCanvas?: HTMLCanvasElement) => {
     const processId = ++processSeqRef.current;
     activeProcessRef.current = processId;
@@ -474,63 +513,9 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       type PdfDocument = { numPages: number; getPage: (n: number) => Promise<PdfPage> };
       type PdfGetDocumentResult = { promise: Promise<PdfDocument> };
 
-      /** Envoie le canvas à Gemini Vision (gratuit) — retourne true si succès */
-      const tryGeminiVision = async (canvas: HTMLCanvasElement): Promise<boolean> => {
-        try {
-          // Redimensionner à 1200px max pour Gemini
-          const MAX = 600; // réduit pour respecter timeout Vercel 10s
-          const ratio = Math.max(canvas.width, canvas.height) > MAX
-            ? MAX / Math.max(canvas.width, canvas.height) : 1;
-          const w = Math.round(canvas.width * ratio);
-          const h = Math.round(canvas.height * ratio);
-          const resized = document.createElement("canvas");
-          resized.width = w; resized.height = h;
-          const ctx = resized.getContext("2d");
-          if (!ctx) return false;
-          ctx.fillStyle = "white";
-          ctx.fillRect(0, 0, w, h);
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-          ctx.drawImage(canvas, 0, 0, w, h);
-          const base64 = resized.toDataURL("image/jpeg", 0.9).split(",")[1] ?? "";
-
-          if (activeProcessRef.current !== processId) return true;
-          setProgress(50);
-
-          const res = await fetch("/api/parse-invoice", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg" }),
-          });
-          if (!res.ok) return false;
-          if (activeProcessRef.current !== processId) return true;
-
-          const data = (await res.json()) as {
-            date?: string | null; fournisseur?: string | null;
-            montant?: number | null; libelle?: string | null;
-            error?: string;
-          };
-          if (data.error) {
-            setOcrRawText('Gemini error: ' + data.error);
-            return false;
-          }
-
-          setProgress(95);
-          setOcrConfidence(99);
-          setInvoice({
-            date: data.date ?? "",
-            fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
-            montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
-            libelle: data.libelle ? data.libelle.toUpperCase() : "",
-          });
-          setProgress(100);
-          return true;
-        } catch { return false; }
-      };
-
       let sourceCanvas: HTMLCanvasElement | null = preCanvas ?? null;
 
-      // ── PDF numérique : texte natif (instantané, pas d\'IA nécessaire) ──────
+      // ── PDF numérique : texte natif (instantané) ─────────────────────────────
       if (!preCanvas && picked.type === "application/pdf") {
         setProgress(10);
         const pdfjs = await ensurePdfJsLoaded();
@@ -550,39 +535,11 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             nativeText += tc.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("") + "\n";
           }
           if (activeProcessRef.current !== processId) return;
-
           if (nativeText.trim().length > 80) {
-            setProgress(40);
+            setProgress(50);
             setOcrRawText(nativeText);
             setOcrConfidence(99);
-            // Essaie Gemini pour la précision, fallback regex
-            const res = await fetch("/api/parse-invoice", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ocrText: nativeText }),
-            });
-            if (res.ok && activeProcessRef.current === processId) {
-              const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
-              if (!data.error) {
-                setInvoice({
-                  date: data.date ?? "",
-                  fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
-                  montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
-                  libelle: data.libelle ? data.libelle.toUpperCase() : "",
-                });
-                setProgress(100);
-                return;
-              }
-            }
-            // Fallback regex
-            const p = parseInvoice(nativeText);
-            setInvoice({
-              date: p.date ?? "",
-              fournisseur: p.fournisseur ? p.fournisseur.toUpperCase().slice(0, 50) : "",
-              montant: p.montant === null ? "" : p.montant.toFixed(2),
-              libelle: p.libelle ? p.libelle.toUpperCase() : "",
-            });
-            setProgress(100);
+            await parseAndSetInvoice(nativeText, processId);
             return;
           }
         } catch { /* PDF scanné → continuer */ }
@@ -607,14 +564,9 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       }
 
       if (!sourceCanvas) throw new Error("Pas de canvas source");
-      setProgress(25);
 
-      // ── Tentative 1 : Gemini Vision (gratuit, précis sur docs complexes) ────
-      const geminiOk = await tryGeminiVision(sourceCanvas);
-      if (geminiOk || activeProcessRef.current !== processId) return;
-
-      // ── Fallback : Tesseract local (si Gemini indisponible) ─────────────────
-      setProgress(30);
+      // ── Tesseract OCR ─────────────────────────────────────────────────────────
+      setProgress(15);
       const MAX_PX = 1400;
       const bigSide = Math.max(sourceCanvas.width, sourceCanvas.height);
       if (bigSide > MAX_PX) {
@@ -637,25 +589,21 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       if (binaryCanvas) preprocessCanvasForOcr(binaryCanvas);
       if (activeProcessRef.current !== processId) return;
 
-      setProgress(35);
+      setProgress(25);
       const worker = await ensureTesseractWorker();
       if (activeProcessRef.current !== processId) return;
       const dataUrl = (binaryCanvas ?? sourceCanvas).toDataURL("image/png");
       const result = await worker.recognize(dataUrl);
       if (activeProcessRef.current !== processId) return;
 
-      setProgress(90);
-      const text = result.data.text;
-      setOcrRawText(text);
+      const ocrText = result.data.text;
+      setProgress(75);
+      setOcrRawText(ocrText);
       setOcrConfidence(Math.round(result.data.confidence));
-      const p = parseInvoice(text);
-      setInvoice({
-        date: p.date ?? "",
-        fournisseur: p.fournisseur ? p.fournisseur.toUpperCase().slice(0, 50) : "",
-        montant: p.montant === null ? "" : p.montant.toFixed(2),
-        libelle: p.libelle ? p.libelle.toUpperCase() : "",
-      });
-      setProgress(100);
+
+      // ── Gemini analyse le texte OCR (plus rapide qu'envoyer une image) ───────
+      await parseAndSetInvoice(ocrText, processId);
+
     } catch {
       alert("Erreur lors de l\'analyse. Veuillez remplir les champs manuellement.");
     } finally {
