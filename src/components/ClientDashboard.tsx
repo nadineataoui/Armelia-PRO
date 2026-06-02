@@ -510,7 +510,10 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
             montant?: number | null; libelle?: string | null;
             error?: string;
           };
-          if (data.error) return false;
+          if (data.error) {
+            setOcrRawText('Gemini error: ' + data.error);
+            return false;
+          }
 
           setProgress(95);
           setOcrConfidence(99);

@@ -102,6 +102,14 @@ export const extractDate = (lines: string[], now = new Date()): string | null =>
       if (!m) return null;
       return { dd: Number(m[1]), mm: Number(m[2]), yyyy: Number(m[3]) };
     },
+    // dd/mm/yy ou d/mm/yy (format court manuscrit ex: 6/01/25)
+    (s) => {
+      const m = s.match(/\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2})\b/);
+      if (!m) return null;
+      const yy = Number(m[3]);
+      const yyyy = yy <= 50 ? 2000 + yy : 1900 + yy;
+      return { dd: Number(m[1]), mm: Number(m[2]), yyyy };
+    },
     // dd.mm.yyyy (format suisse/européen avec points)
     (s) => {
       const m = s.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
