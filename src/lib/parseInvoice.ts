@@ -253,7 +253,23 @@ const hasCompanySuffix = (line: string) =>
   /\b(s\.?a\.?r\.?l\.?|s\.?a\.?s\.?|s\.?c\.?i\.?|s\.?n\.?c\.?|e\.?u\.?r\.?l\.?|s\.?a\.|a\.?g\.|g\.?m\.?b\.?h\.?|ltd\.?|l\.?l\.?c\.?|inc\.?|corp\.?|b\.?v\.?|n\.?v\.?|plc\.?)\b/i
     .test(line);
 
+/** Détecte les marques connues dans tout le texte (résistant aux OCR mauvais) */
+const detectKnownBrand = (fullText: string): string | null => {
+  const t = fullText.toLowerCase().replace(/\s+/g, ' ');
+  // Mons Royale — le logo peut être lu "MONS" séparé de "ROYALE"
+  if (/mons\s*royale/i.test(t) || (/\bmons\b/.test(t) && /\broyale\b/.test(t))) return 'MONS ROYALE';
+  if (/\bsideshore\b/i.test(t)) return 'SIDESHORE';
+  if (/\bfssc\b/i.test(t) || /fullstacksupply/i.test(t) || /faction\s*collective/i.test(t)) return 'FSSC';
+  if (/\blocalsearch\b/i.test(t)) return 'LOCALSEARCH';
+  return null;
+};
+
 export const extractSupplier = (lines: string[]): string | null => {
+  // Priorité 0 : détection des marques connues dans tout le texte
+  const fullText = lines.join(' ');
+  const known = detectKnownBrand(fullText);
+  if (known) return known;
+
   // Priorité 1 : ligne avec label explicite (De:, Société:, Fournisseur:, etc.)
   for (const l of lines.slice(0, 25)) {
     const m = l.match(/^(?:de|from|soci[eé]t[eé]|fournisseur|vendeur|[eé]metteur|exp[eé]diteur|supplier|vendor)\s*[:\-]\s*(.+)/i);
@@ -293,17 +309,14 @@ export const parseInvoice = (text: string): ParsedInvoice => {
   try {
     const normalized = normalizeText(text);
     const lines = splitLines(normalized);
-
     const date = extractDate(lines);
     const montant = extractAmount(lines);
     const fournisseur = extractSupplier(lines);
-
     const libelleSupplier = fournisseur || cleanSupplierLine(lines[0] || '') || null;
     let libelle: string | null = null;
     if (libelleSupplier && date) libelle = 'Facture ' + libelleSupplier + ' - ' + date;
     else if (libelleSupplier) libelle = 'Facture ' + libelleSupplier;
     else if (date) libelle = 'Facture - ' + date;
-
     return { date, fournisseur, montant, libelle };
   } catch {
     return { date: null, fournisseur: null, montant: null, libelle: null };
