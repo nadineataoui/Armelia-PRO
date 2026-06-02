@@ -478,7 +478,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       const tryGeminiVision = async (canvas: HTMLCanvasElement): Promise<boolean> => {
         try {
           // Redimensionner à 1200px max pour Gemini
-          const MAX = 1200;
+          const MAX = 600; // réduit pour respecter timeout Vercel 10s
           const ratio = Math.max(canvas.width, canvas.height) > MAX
             ? MAX / Math.max(canvas.width, canvas.height) : 1;
           const w = Math.round(canvas.width * ratio);
