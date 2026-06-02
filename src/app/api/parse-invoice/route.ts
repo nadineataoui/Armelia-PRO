@@ -44,15 +44,28 @@ Analyse cette facture et retourne UNIQUEMENT ce JSON valide (null si introuvable
    - Numéros de contrat, client, facture
 
    VÉRIFICATION OBLIGATOIRE DU MONTANT :
-   Si tu vois plusieurs lignes de totaux, calcule : Sous-total + Taxes - Remises = Total attendu.
-   Si ton montant détecté ne correspond pas au calcul, corrige-le.
-   Exemple LOCALSEARCH : Total intermédiaire 378.00 + TVA 30.62 = 408.62 → Arrondi -0.02 → Total arrondi 408.60
-   Si tu lis "208.60" mais que le calcul donne ~408.60, c'est une erreur de lecture → retourner 408.60.
+   Le bon montant = Sous-total/Résultat intermédiaire + TVA/MwSt/Taxe.
+   Vérifie toujours : si montant_détecté ≈ sous-total (sans TVA), c'est FAUX → ajouter la TVA.
 
-   EXEMPLES RÉELS :
-   - MONS ROYALE : Sous-total 4528 + Taxe 348.45 - Remise 226.40 → Total CHF 4650.05 ✓
-   - SIDESHORE : Intermédiaire 78.35 + MwSt 6.35 → Total facture 84.70 ✓
-   - LOCALSEARCH : Total intermédiaire 378 + TVA 30.62 = 408.62 - Arrondi 0.02 → Total arrondi 408.60 ✓
+   SIDESHORE spécifiquement : la facture a toujours cette structure :
+     - "Résultat intermédiaire" ou "Total livraison" = SOUS-TOTAL (sans TVA) → IGNORER
+     - "MwSt 8.1%" = TVA → IGNORER
+     - "Total facture" dans boîte noire = MONTANT CORRECT ✓
+   Exemple : Intermédiaire 1085.50 + MwSt 87.95 → Total facture 1173.45 ✓ (PAS 1085.50)
+
+   LOCALSEARCH spécifiquement :
+     - "Total intermédiaire" = SOUS-TOTAL → IGNORER
+     - "+ TVA (8,1%)" = TVA → IGNORER
+     - "Total arrondi en CHF" surligné jaune = MONTANT CORRECT ✓
+   Exemple : 378.00 + 30.62 = 408.62 → Arrondi -0.02 → Total arrondi 408.60 ✓ (PAS 378)
+
+   MONS ROYALE spécifiquement :
+     - "Sous-total" = SOUS-TOTAL → IGNORER
+     - "Discount" / "Remise" = à déduire
+     - "Taxe" = TVA → fait partie du total
+     - "Total CHF" surligné jaune = MONTANT CORRECT ✓
+
+   Si lecture ambiguë d'un chiffre (ex: 4 vs 2), utilise le calcul pour corriger.
 
    Format suisse : 4'650.05 ou SFr. 4,650.05 ou CHF 4 650.05 → retourner 4650.05
    Plage valide : entre 1.00 et 99999.99
