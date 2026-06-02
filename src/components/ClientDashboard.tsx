@@ -552,6 +552,46 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
 
       let sourceCanvas: HTMLCanvasElement | null = preCanvas ?? null;
 
+      // ── GEMINI VISION DIRECT : envoyer le fichier original avant tout traitement ──
+      // Pour les images (pas les PDF), on envoie directement le fichier brut à Gemini.
+      // C'est bien plus précis que l'image binarisée utilisée pour l'OCR.
+      if (!preCanvas && picked.type.startsWith("image/")) {
+        setProgress(10);
+        try {
+          const arrayBuffer = await picked.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          let binary = "";
+          for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+          const imageBase64 = btoa(binary);
+          const mediaType = picked.type || "image/jpeg";
+
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 18000);
+          const res = await fetch("/api/parse-invoice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64, mediaType }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          if (res.ok && activeProcessRef.current === processId) {
+            const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
+            if (!data.error && (data.date || data.fournisseur || data.montant)) {
+              setOcrConfidence(99);
+              setInvoice({
+                date: data.date ?? "",
+                fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
+                montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
+                libelle: data.libelle ? data.libelle.toUpperCase() : "",
+              });
+              setProgress(100);
+              return; // Gemini Vision a réussi → pas besoin d'OCR
+            }
+          }
+        } catch { /* Gemini Vision a échoué → continuer avec OCR */ }
+        if (activeProcessRef.current !== processId) return;
+      }
+
       // ── PDF numérique : texte natif (instantané) ─────────────────────────────
       if (!preCanvas && picked.type === "application/pdf") {
         setProgress(10);
