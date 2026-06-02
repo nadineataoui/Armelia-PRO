@@ -456,28 +456,61 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
 
   /**
    * Envoie le texte OCR à Gemini pour extraction précise, fallback regex si indisponible.
-   * Approche texte = bien plus rapide que Vision (pas de timeout Vercel).
    */
-  const parseAndSetInvoice = useCallback(async (text: string, processId: number) => {
+  const parseAndSetInvoice = useCallback(async (text: string, processId: number, canvas?: HTMLCanvasElement) => {
     if (activeProcessRef.current !== processId) return;
     try {
-      const res = await fetch("/api/parse-invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ocrText: text }),
-      });
-      if (res.ok && activeProcessRef.current === processId) {
-        const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
-        if (!data.error) {
-          setInvoice({
-            date: data.date ?? "",
-            fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
-            montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
-            libelle: data.libelle ? data.libelle.toUpperCase() : "",
-          });
-          setProgress(100);
-          return;
+      // Si le texte OCR est trop court/mauvais ET on a un canvas, envoyer l'image directement
+      let body: Record<string, unknown>;
+      if (canvas && text.replace(/[^a-zA-Z0-9]/g, "").length < 50) {
+        // Texte OCR trop pauvre → envoyer l'image
+        const MAX = 800;
+        const ratio = Math.max(canvas.width, canvas.height) > MAX ? MAX / Math.max(canvas.width, canvas.height) : 1;
+        const w = Math.round(canvas.width * ratio);
+        const h = Math.round(canvas.height * ratio);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const ctx = c.getContext("2d");
+        if (ctx) { ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h); ctx.drawImage(canvas, 0, 0, w, h); }
+        const base64 = c.toDataURL("image/jpeg", 0.85).split(",")[1] ?? "";
+        body = { imageBase64: base64, mediaType: "image/jpeg" };
+      } else {
+        body = { ocrText: text };
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      try {
+        const res = await fetch("/api/parse-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (res.ok && activeProcessRef.current === processId) {
+          const data = (await res.json()) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null; error?: string };
+          if (!data.error) {
+            setOcrConfidence(99);
+            setInvoice({
+              date: data.date ?? "",
+              fournisseur: data.fournisseur ? data.fournisseur.toUpperCase().slice(0, 50) : "",
+              montant: typeof data.montant === "number" ? data.montant.toFixed(2) : "",
+              libelle: data.libelle ? data.libelle.toUpperCase() : "",
+            });
+            setProgress(100);
+            return;
+          } else {
+            setOcrRawText((prev) => prev + "\n[Gemini error: " + data.error + "]");
+          }
+        } else {
+          clearTimeout(timer);
+          const errText = await res.text().catch(() => "");
+          setOcrRawText((prev) => prev + "\n[API " + res.status + ": " + errText.slice(0, 100) + "]");
         }
+      } catch (e) {
+        clearTimeout(timer);
+        setOcrRawText((prev) => prev + "\n[Fetch error: " + String(e).slice(0, 100) + "]");
       }
     } catch { /* fallback ci-dessous */ }
     // Fallback regex local
@@ -602,7 +635,7 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
       setOcrConfidence(Math.round(result.data.confidence));
 
       // ── Gemini analyse le texte OCR (plus rapide qu'envoyer une image) ───────
-      await parseAndSetInvoice(ocrText, processId);
+      await parseAndSetInvoice(ocrText, processId, sourceCanvas ?? undefined);
 
     } catch {
       alert("Erreur lors de l\'analyse. Veuillez remplir les champs manuellement.");
