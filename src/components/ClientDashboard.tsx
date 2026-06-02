@@ -462,21 +462,9 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     try {
       // Si le texte OCR est trop court/mauvais ET on a un canvas, envoyer l'image directement
       let body: Record<string, unknown>;
-      if (canvas) {
-        // Toujours envoyer l'image quand disponible — Gemini la lit mieux que le texte OCR garblé
-        const MAX = 800;
-        const ratio = Math.max(canvas.width, canvas.height) > MAX ? MAX / Math.max(canvas.width, canvas.height) : 1;
-        const w = Math.round(canvas.width * ratio);
-        const h = Math.round(canvas.height * ratio);
-        const c = document.createElement("canvas");
-        c.width = w; c.height = h;
-        const ctx = c.getContext("2d");
-        if (ctx) { ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h); ctx.drawImage(canvas, 0, 0, w, h); }
-        const base64 = c.toDataURL("image/jpeg", 0.85).split(",")[1] ?? "";
-        body = { imageBase64: base64, mediaType: "image/jpeg" };
-      } else {
-        body = { ocrText: text };
-      }
+      // Toujours envoyer le texte OCR — beaucoup plus rapide que l'image (pas de timeout Vercel)
+      // Gemini comprend le texte OCR même imparfait (30-60% confiance)
+      body = { ocrText: text };
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 9000);
