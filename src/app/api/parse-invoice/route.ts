@@ -43,10 +43,16 @@ Analyse cette facture et retourne UNIQUEMENT ce JSON valide (null si introuvable
    - Montants manuscrits/stylo ajoutés sur la facture
    - Numéros de contrat, client, facture
 
+   VÉRIFICATION OBLIGATOIRE DU MONTANT :
+   Si tu vois plusieurs lignes de totaux, calcule : Sous-total + Taxes - Remises = Total attendu.
+   Si ton montant détecté ne correspond pas au calcul, corrige-le.
+   Exemple LOCALSEARCH : Total intermédiaire 378.00 + TVA 30.62 = 408.62 → Arrondi -0.02 → Total arrondi 408.60
+   Si tu lis "208.60" mais que le calcul donne ~408.60, c'est une erreur de lecture → retourner 408.60.
+
    EXEMPLES RÉELS :
    - MONS ROYALE : Sous-total 4528 + Taxe 348.45 - Remise 226.40 → Total CHF 4650.05 ✓
    - SIDESHORE : Intermédiaire 78.35 + MwSt 6.35 → Total facture 84.70 ✓
-   - LOCALSEARCH : Total 408.62 - Arrondi 0.02 → Total arrondi 408.60 ✓
+   - LOCALSEARCH : Total intermédiaire 378 + TVA 30.62 = 408.62 - Arrondi 0.02 → Total arrondi 408.60 ✓
 
    Format suisse : 4'650.05 ou SFr. 4,650.05 ou CHF 4 650.05 → retourner 4650.05
    Plage valide : entre 1.00 et 99999.99
