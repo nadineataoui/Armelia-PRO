@@ -1,81 +1,203 @@
 import { NextResponse } from "next/server";
 
-const PROMPT = `Tu es un assistant comptable expert en factures suisses. Voici du texte extrait par OCR (parfois imparfait) d'une facture.
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt optimisé pour les factures suisses réelles (MONS ROYALE, SIDESHORE,
+// FSSC/Faction, LOCALSEARCH, etc.) scannées par téléphone ou importées.
+// ─────────────────────────────────────────────────────────────────────────────
+const PROMPT = `Tu es un expert comptable spécialisé dans les factures suisses.
 
-Identifie et retourne UNIQUEMENT ce JSON valide (null si introuvable) :
+Analyse cette facture et retourne UNIQUEMENT ce JSON valide (null si introuvable) :
 {
   "date": "JJ/MM/AAAA",
-  "fournisseur": "NOM SOCIETE EN MAJUSCULES",
+  "fournisseur": "NOM EN MAJUSCULES",
   "montant": 123.45,
   "libelle": "FACTURE [FOURNISSEUR] - [DATE]"
 }
 
-Règles importantes :
-- fournisseur : cherche le NOM DE MARQUE dans tout le texte. Les fournisseurs possibles sont : MONS ROYALE, SIDESHORE, FSSC (ou Faction Collective ou fullstacksupply), LOCALSEARCH. Ignore "Paragon Sport SA" et "McBoard" qui sont toujours le CLIENT.
-- date : date d'émission de la facture au format JJ/MM/AAAA (pas la date d'échéance)
-- montant : le TOTAL FINAL payé (Total facture, Total CHF, Total arrondi). Nombre décimal, pas de symbole monétaire.
-- Le texte OCR peut avoir des erreurs de lecture, interprète intelligemment.`;
+═══ RÈGLES ABSOLUES ═══
 
+1. DATE — Date d'émission imprimée UNIQUEMENT :
+   - Cherche : "Date de facturation", "Invoice Date", "Date:", "Facturé le", "Dated"
+   - Accepte tous les formats : 24/9/2024 → 24/09/2024 | 15.10.2024 → 15/10/2024 | "01 novembre 2024" → 01/11/2024 | "11 Sep 2024" → 11/09/2024
+   - IGNORE absolument les textes manuscrits/stylo (ex: "Hiver 24/25", "Wink 24/25" = saisons, PAS des dates)
+   - JAMAIS la Date d'échéance / Due Date / Date de livraison
+
+2. FOURNISSEUR — Société émettrice (logo/en-tête) :
+   - Fournisseurs connus : MONS ROYALE, SIDESHORE, FSSC, LOCALSEARCH, FACTION
+   - Paragon Sport SA, McBoard = CLIENT destinataire → IGNORER
+   - Prendre le nom de la marque principale visible en haut/logo
+
+3. MONTANT — Total TTC final uniquement :
+   - Cherche dans l'ordre : montant surligné en jaune, "Total facture", "Total CHF", "Total arrondi", "Total TTC", ligne en gras
+   - Format suisse : 4'650.05 ou SFr. 4,650.05 ou CHF 4 650.05 → toujours retourner 4650.05
+   - JAMAIS un numéro de contrat, numéro client, ou numéro de facture
+   - IGNORE les montants manuscrits/stylo ajoutés sur la facture
+   - Plage valide : entre 1.00 et 99999.99
+
+4. LIBELLE : "FACTURE [FOURNISSEUR] - [DATE]"
+
+Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function parseJSON(raw: string) {
+  // Cherche le premier bloc JSON dans la réponse
+  const m = raw.match(/\{[\s\S]*?\}/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[0]) as {
+      date?: string | null;
+      fournisseur?: string | null;
+      montant?: number | null;
+      libelle?: string | null;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildResponse(parsed: {
+  date?: string | null;
+  fournisseur?: string | null;
+  montant?: number | null;
+  libelle?: string | null;
+}) {
+  return NextResponse.json({
+    date: parsed.date ?? null,
+    fournisseur: parsed.fournisseur ?? null,
+    montant: typeof parsed.montant === "number" ? parsed.montant : null,
+    libelle: parsed.libelle ?? null,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini 2.0 Flash — Vision (image base64)
+// ─────────────────────────────────────────────────────────────────────────────
+async function callGeminiVision(imageBase64: string, mediaType: string, apiKey: string) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: mediaType || "image/jpeg", data: imageBase64 } },
+          { text: PROMPT },
+        ],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 300 },
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("[gemini-vision] error:", res.status, err.slice(0, 200));
+    return null;
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  console.log("[gemini-vision] OK:", raw.slice(0, 100));
+  return parseJSON(raw);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini 2.0 Flash — Texte (OCR)
+// ─────────────────────────────────────────────────────────────────────────────
+async function callGeminiText(ocrText: string, apiKey: string) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: `${PROMPT}\n\nTexte OCR de la facture :\n"""\n${ocrText.slice(0, 4000)}\n"""` }],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 300 },
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("[gemini-text] error:", res.status, err.slice(0, 200));
+    return null;
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  console.log("[gemini-text] OK:", raw.slice(0, 100));
+  return parseJSON(raw);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Groq — Texte fallback (llama-3.3-70b)
+// ─────────────────────────────────────────────────────────────────────────────
+async function callGroqText(ocrText: string, apiKey: string) {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: PROMPT },
+        { role: "user", content: `Texte OCR de la facture :\n"""\n${ocrText.slice(0, 3000)}\n"""` },
+      ],
+      max_tokens: 256,
+      temperature: 0,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("[groq-text] error:", res.status, err.slice(0, 200));
+    return null;
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const raw = data.choices?.[0]?.message?.content ?? "";
+  console.log("[groq-text] OK:", raw.slice(0, 100));
+  return parseJSON(raw);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route principale — cascade : Gemini Vision → Gemini Text → Groq Text
+// ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { ocrText?: string; imageBase64?: string };
-    const text = body.ocrText?.trim();
-    if (!text || text.length < 10) {
-      return NextResponse.json({ error: "Texte trop court" }, { status: 400 });
-    }
+    const body = (await req.json()) as {
+      ocrText?: string;
+      imageBase64?: string;
+      mediaType?: string;
+    };
 
-    const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GOOGLE_AI_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
 
-    // Essayer Groq d'abord (rapide et fiable)
-    if (groqKey) {
-      try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [
-              { role: "system", content: PROMPT },
-              { role: "user", content: `Texte OCR de la facture:\n"""\n${text.slice(0, 3000)}\n"""` }
-            ],
-            max_tokens: 256,
-            temperature: 0,
-          }),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          const raw = data.choices?.[0]?.message?.content ?? "";
-          console.log("[groq] OK:", raw.slice(0, 60));
-          const m = raw.match(/\{[\s\S]*\}/);
-          if (m) {
-            const parsed = JSON.parse(m[0]) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null };
-            return NextResponse.json({ date: parsed.date ?? null, fournisseur: parsed.fournisseur ?? null, montant: typeof parsed.montant === "number" ? parsed.montant : null, libelle: parsed.libelle ?? null });
-          }
-        } else {
-          const err = await res.text();
-          console.error("[groq] error:", res.status, err.slice(0, 100));
-        }
-      } catch (e) { console.error("[groq] fetch error:", e); }
+    if (!geminiKey && !groqKey) {
+      return NextResponse.json({ error: "Aucune clé API configurée" }, { status: 500 });
     }
 
-    // Fallback Gemini
-    if (geminiKey) {
-      try {
-        const { GoogleGenerativeAI } = await import("@google/generative-ai");
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(`${PROMPT}\n\nTexte:\n"""\n${text.slice(0, 3000)}\n"""`);
-        const raw = result.response.text();
-        const m = raw.match(/\{[\s\S]*\}/);
-        if (m) {
-          const parsed = JSON.parse(m[0]) as { date?: string|null; fournisseur?: string|null; montant?: number|null; libelle?: string|null };
-          return NextResponse.json({ date: parsed.date ?? null, fournisseur: parsed.fournisseur ?? null, montant: typeof parsed.montant === "number" ? parsed.montant : null, libelle: parsed.libelle ?? null });
-        }
-      } catch (e) { console.error("[gemini] error:", e); }
+    // ── 1. Gemini Vision : image envoyée directement (meilleure précision) ────
+    if (body.imageBase64 && geminiKey) {
+      const parsed = await callGeminiVision(body.imageBase64, body.mediaType ?? "image/jpeg", geminiKey);
+      if (parsed) return buildResponse(parsed);
     }
 
-    return NextResponse.json({ error: "IA indisponible" }, { status: 500 });
+    // ── 2. Gemini Texte : OCR déjà extrait ───────────────────────────────────
+    const text = body.ocrText?.trim();
+    if (text && text.length > 20 && geminiKey) {
+      const parsed = await callGeminiText(text, geminiKey);
+      if (parsed) return buildResponse(parsed);
+    }
+
+    // ── 3. Groq Texte : fallback si Gemini indisponible ──────────────────────
+    if (text && text.length > 20 && groqKey) {
+      const parsed = await callGroqText(text, groqKey);
+      if (parsed) return buildResponse(parsed);
+    }
+
+    return NextResponse.json({ error: "Extraction impossible" }, { status: 500 });
   } catch (err) {
     console.error("[parse-invoice]", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });

@@ -460,14 +460,30 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
   const parseAndSetInvoice = useCallback(async (text: string, processId: number, canvas?: HTMLCanvasElement) => {
     if (activeProcessRef.current !== processId) return;
     try {
-      // Si le texte OCR est trop court/mauvais ET on a un canvas, envoyer l'image directement
+      // Envoyer l'image ET le texte OCR : Gemini Vision utilise l'image en priorité
+      // (bien meilleur pour les factures photo/scan), le texte OCR sert de fallback.
       let body: Record<string, unknown>;
-      // Toujours envoyer le texte OCR — beaucoup plus rapide que l'image (pas de timeout Vercel)
-      // Gemini comprend le texte OCR même imparfait (30-60% confiance)
-      body = { ocrText: text };
+      if (canvas) {
+        // Redimensionner à max 1600px pour rester sous la limite Gemini (4MB base64)
+        const MAX = 1600;
+        const ratio = Math.min(1, MAX / Math.max(canvas.width, canvas.height));
+        let imgCanvas = canvas;
+        if (ratio < 1) {
+          imgCanvas = document.createElement("canvas");
+          imgCanvas.width = Math.round(canvas.width * ratio);
+          imgCanvas.height = Math.round(canvas.height * ratio);
+          const ctx = imgCanvas.getContext("2d");
+          if (ctx) ctx.drawImage(canvas, 0, 0, imgCanvas.width, imgCanvas.height);
+        }
+        const dataUrl = imgCanvas.toDataURL("image/jpeg", 0.88);
+        const imageBase64 = dataUrl.split(",")[1];
+        body = { imageBase64, mediaType: "image/jpeg", ocrText: text };
+      } else {
+        body = { ocrText: text };
+      }
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 9000);
+      const timer = setTimeout(() => controller.abort(), 15000);
       try {
         const res = await fetch("/api/parse-invoice", {
           method: "POST",
