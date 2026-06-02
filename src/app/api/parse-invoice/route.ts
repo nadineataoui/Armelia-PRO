@@ -27,12 +27,29 @@ Analyse cette facture et retourne UNIQUEMENT ce JSON valide (null si introuvable
    - Paragon Sport SA, McBoard = CLIENT destinataire → IGNORER
    - Prendre le nom de la marque principale visible en haut/logo
 
-3. MONTANT — Total TTC final uniquement :
-   - Cherche dans l'ordre : montant surligné en jaune, "Total facture", "Total CHF", "Total arrondi", "Total TTC", ligne en gras
-   - Format suisse : 4'650.05 ou SFr. 4,650.05 ou CHF 4 650.05 → toujours retourner 4650.05
-   - JAMAIS un numéro de contrat, numéro client, ou numéro de facture
-   - IGNORE les montants manuscrits/stylo ajoutés sur la facture
-   - Plage valide : entre 1.00 et 99999.99
+3. MONTANT — RÈGLE CRITIQUE : toujours le DERNIER total après toutes taxes et remises :
+   PRIORITÉ (dans l'ordre) :
+   a) Montant surligné en jaune ou dans une boîte noire/encadrée en bas de facture
+   b) "Total arrondi" / "Total arrondi en CHF" → c'est le montant final à payer
+   c) "Total facture" (ligne en gras/encadrée, souvent fond noir)
+   d) "Total CHF" / "Total TTC" / "Grand Total"
+   e) Dernier montant en bas de la colonne des totaux
+
+   IGNORER ABSOLUMENT :
+   - Sous-total / Résultat intermédiaire / Total intermédiaire (avant taxes)
+   - Montant TVA / MwSt / Taxe seul
+   - Remise / Discount / Rabais
+   - Montants par ligne d'article
+   - Montants manuscrits/stylo ajoutés sur la facture
+   - Numéros de contrat, client, facture
+
+   EXEMPLES RÉELS :
+   - MONS ROYALE : Sous-total 4528 + Taxe 348.45 - Remise 226.40 → Total CHF 4650.05 ✓
+   - SIDESHORE : Intermédiaire 78.35 + MwSt 6.35 → Total facture 84.70 ✓
+   - LOCALSEARCH : Total 408.62 - Arrondi 0.02 → Total arrondi 408.60 ✓
+
+   Format suisse : 4'650.05 ou SFr. 4,650.05 ou CHF 4 650.05 → retourner 4650.05
+   Plage valide : entre 1.00 et 99999.99
 
 4. LIBELLE : "FACTURE [FOURNISSEUR] - [DATE]"
 
