@@ -462,8 +462,8 @@ export default function ClientDashboard({ clientCode }: { clientCode: string }) 
     try {
       // Si le texte OCR est trop court/mauvais ET on a un canvas, envoyer l'image directement
       let body: Record<string, unknown>;
-      if (canvas && text.replace(/[^a-zA-Z0-9]/g, "").length < 50) {
-        // Texte OCR trop pauvre → envoyer l'image
+      if (canvas) {
+        // Toujours envoyer l'image quand disponible — Gemini la lit mieux que le texte OCR garblé
         const MAX = 800;
         const ratio = Math.max(canvas.width, canvas.height) > MAX ? MAX / Math.max(canvas.width, canvas.height) : 1;
         const w = Math.round(canvas.width * ratio);
