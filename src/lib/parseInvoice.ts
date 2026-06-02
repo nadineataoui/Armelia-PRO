@@ -198,14 +198,19 @@ export const extractAmount = (lines: string[]): number | null => {
   }
 
   if (candidates.length > 0) {
-    candidates.sort((a, b) => b.score - a.score || b.value - a.value || a.index - b.index);
-    return candidates[0].value;
+    // Filtrer les montants suspects (codes SKU lus comme nombres, ex: 100506.11)
+    // Un montant avec score 0 et > 9999 est probablement un faux positif
+    const valid = candidates.filter(c => c.score > 0 || c.value <= 9999);
+    const pool = valid.length > 0 ? valid : candidates;
+    pool.sort((a, b) => b.score - a.score || b.value - a.value || a.index - b.index);
+    return pool[0].value;
   }
 
+  // Fallback : dernier montant raisonnable dans le texte (< 50000 pour éviter SKUs)
   const allMatches = lines.flatMap((l) => Array.from(l.matchAll(amountRegex)).map((m) => m[1]));
   for (let i = allMatches.length - 1; i >= 0; i--) {
     const value = parseAmountString(allMatches[i] || '');
-    if (Number.isFinite(value) && value > 0) return value;
+    if (Number.isFinite(value) && value > 0 && value < 50000) return value;
   }
   return null;
 };
