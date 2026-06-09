@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import ClientForm from "@/components/ClientForm";
 import DeleteClientButton from "@/components/DeleteClientButton";
 import ClientPasswordReset from "@/components/ClientPasswordReset";
-import AdminInvoiceList from "@/components/AdminInvoiceList";
+import AdminInvoicesSection from "@/components/AdminInvoicesSection";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerAuthSession();
@@ -99,7 +99,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             <h2 className="text-sm font-black text-slate-900">Factures</h2>
           </div>
           <div className="p-4">
-            <AdminInvoiceList invoices={invoices} clientId={client.id} />
+            <AdminInvoicesSection invoices={invoices} clientId={client.id} clientCode={client.codeClient} />
           </div>
         </div>
       </main>
