@@ -37,11 +37,18 @@ Analyse cette facture et retourne UNIQUEMENT ce JSON valide (null si introuvable
 
    IGNORER ABSOLUMENT :
    - Sous-total / Résultat intermédiaire / Total intermédiaire (avant taxes)
-   - Montant TVA / MwSt / Taxe seul
+   - Montant TVA / MwSt / Taxe seul (ex: "Taxe: 348.45" ou "Tax Amount: 348.45" → JAMAIS le montant de taxe)
    - Remise / Discount / Rabais
    - Montants par ligne d'article
    - Montants manuscrits/stylo ajoutés sur la facture
    - Numéros de contrat, client, facture
+   - Tax Basis, Tax Rate, Tax Amount dans les tableaux de TVA
+
+   RÈGLE ANTI-ERREUR CRITIQUE :
+   Le montant final est TOUJOURS supérieur au montant de TVA.
+   Si montant_détecté ≈ TVA (petit montant proche de 8% d'un autre montant) → c'est FAUX, cherche le vrai total.
+   Exemple MONS ROYALE page 2 : Sous-total 4528 - Remise 226.40 + Taxe 348.45 → Total CHF 4650.05 ✓
+   "Taxe: 348.45" est la TVA → IGNORER. "Total CHF: 4650.05" surligné jaune → PRENDRE.
 
    VÉRIFICATION OBLIGATOIRE DU MONTANT :
    Le bon montant = Sous-total/Résultat intermédiaire + TVA/MwSt/Taxe.
